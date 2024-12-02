@@ -3,3 +3,4 @@ sqlalchemy
 PyPDF2
 psycopg2-binary
 matplotlib
+python-terrier
