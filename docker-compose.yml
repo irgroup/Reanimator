@@ -1,0 +1,18 @@
+services:
+  cord19plus:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    image: cord19plus
+    volumes:
+      - ./workspace:/workspace
+    tty: true
