@@ -1,10 +1,11 @@
-FROM ubuntu/python:3.10-22.04_stable
+FROM ubuntu:22.04
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 
 RUN apt-get update && \
+    apt-get install -y software-properties-common && \
     add-apt-repository ppa:deadsnakes/ppa && \
     apt-get update && \
     apt-get install -y python3.10 python3.10-venv python3.10-distutils
@@ -12,7 +13,6 @@ RUN apt-get update && \
 # Update and install dependencies
 RUN apt-get update && \
     apt-get install -y \
-    software-properties-common \
     openjdk-17-jdk \
     openjdk-17-jre \
     git \
