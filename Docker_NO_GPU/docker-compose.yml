@@ -1,0 +1,9 @@
+services:
+  cord19plus:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cord19plus
+    volumes:
+      - ./:/workspace
+    tty: true
