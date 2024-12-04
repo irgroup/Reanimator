@@ -24,7 +24,7 @@ Ensure that Docker and Docker Compose are installed with NVIDIA GPU support.
   - Verify the installation with:
 
     ```bash
-    docker run --gpus all nvidia/cuda:11.0-base nvidia-smi
+    docker run --rm --gpus all nvidia/cuda:11.0.3-base-ubuntu20.04 nvidia-smi
     ```
 
 - **For non-NVIDIA GPU users:**
