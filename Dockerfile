@@ -21,7 +21,5 @@ RUN python3 -m pip install --upgrade pip
 
 # Set the working directory
 WORKDIR /workspace
-ADD . /workspace
-
 # Install Python dependencies
 RUN pip install -r requirements.txt
