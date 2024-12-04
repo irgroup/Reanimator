@@ -14,5 +14,5 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
     image: cord19plus
     volumes:
-      - ./workspace:/workspace
+      - ./:/workspace
     tty: true

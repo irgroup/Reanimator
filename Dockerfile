@@ -10,6 +10,7 @@ RUN apt-get update && \
     software-properties-common \
     openjdk-17-jdk \
     openjdk-17-jre \
+    git \
     python3 \
     python3-pip && \
     apt-get clean && \

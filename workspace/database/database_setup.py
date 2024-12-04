@@ -244,7 +244,13 @@ def add_pdfs_to_database(folder_path, session, verbose=False, omit_bytes=False):
                 if doi in no_pdf_dois:
                     #update row with pdf
                     doc_2_update = session.get(Document, doi)
-                    #TODO: update row with pdf
+                    sanity = is_sane(file_path, verbose=False)
+                    if sanity and not omit_bytes:
+                        with open(file_path, 'rb') as file:
+                            pdf_data = file.read()
+                        doc_2_update.pdf = pdf_data
+                        doc_2_update.pdf_is_sane = sanity
+                        session.commit()
 
                 else:
                     #skip
