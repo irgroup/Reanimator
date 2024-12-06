@@ -10,6 +10,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from PyPDF2 import PdfReader
 
+from docling_obj import Docling_Object
+
 import model  
 from model import Base, Document
 #from papermage.magelib import Document
@@ -382,7 +384,47 @@ def save_pdfs_to_folder(folder_path, session):
 
     print("All missing PDFs have been downloaded.")
 
+def add_docling_objects_to_database(docling_out, session, top_k=None):
+    cnt = 0
+    for file in tqdm(os.listdir(docling_out)[:top_k], desc="Processing JSONs"):
+        with open(os.path.join(docling_out, file), "r") as f:
+            docling_json = json.load(f)
+            docling_obj = Docling_Object(doi=file.replace(".json", "").replace("$", "/"), docling_json=docling_json)
+            session.add(docling_obj)
+            cnt += 1
+        if cnt % 10 == 0:
+            session.commit()
+    session.commit()
 
+
+def safe_docling_obj_to_folder(docling_out, session):
+    os.makedirs(docling_out, exist_ok=True)
+
+    # Step 2: Get the list of DOIs with a json in the database
+    all_dois = session.query(Docling_Object.doi).all()
+    all_dois = {doi[0] for doi in all_dois}  # Extract DOIs from tuples
+    # Step 3: Check which DOIs already exist in the folder
+    existing_dois = {os.path.splitext(f)[0].replace("$", "/") for f in os.listdir(docling_out) if f.endswith(".json")}
+    missing_dois = all_dois - existing_dois
+    if not missing_dois:
+        print("All JSONs already exist locally. No downloads needed.")
+        return
+
+    print(f"Found {len(missing_dois)} missing JSONs. Downloading...")
+
+    # Step 4: Download missing JSONs
+    for doi in tqdm(missing_dois, desc="Downloading JSONs"):
+        # Fetch the object from the database
+        json_obj = session.query(Docling_Object).filter_by(doi=doi).first()
+        if json_obj:
+            # Save the JSON to the folder
+            json_file= os.path.join(docling_out, f"{doi.replace('/', '$')}.json")
+            with open(json_file, "w") as json_file:
+                json.dump(json_obj.docling_json, json_file)
+        else:
+            print(f"[WARNING] No JSON found for DOI: {doi}")
+
+    print("All missing JSONs have been downloaded.")
 
 def main():
     # Configure logging
