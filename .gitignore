@@ -164,3 +164,4 @@ src/docling_out/*
 src/docling_out_test
 src/pdfs/*
 src/parallel_exec/pdf_list.txt
+src/pdfs100/*
