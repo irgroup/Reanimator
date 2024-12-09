@@ -385,11 +385,16 @@ def save_pdfs_to_folder(folder_path, session):
     print("All missing PDFs have been downloaded.")
 
 def add_docling_objects_to_database(docling_out, session, top_k=None):
+
+    avail_dois = set([res[0] for res in session.query(Docling_Object.doi).all()])
     cnt = 0
     for file in tqdm(os.listdir(docling_out)[:top_k], desc="Processing JSONs"):
         with open(os.path.join(docling_out, file), "r") as f:
+            doi = file.replace(".json", "").replace("$", "/")
+            if doi in avail_dois:
+                continue
             docling_json = json.load(f)
-            docling_obj = Docling_Object(doi=file.replace(".json", "").replace("$", "/"), docling_json=docling_json)
+            docling_obj = Docling_Object(doi=doi, docling_json=docling_json)
             session.add(docling_obj)
             cnt += 1
         if cnt % 10 == 0:
