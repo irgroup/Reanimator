@@ -10,13 +10,15 @@ from concurrent.futures import ProcessPoolExecutor
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from PyPDF2 import PdfReader
+import pickle
 
-from docling_obj import Docling_Object
+from database.docling_obj import Docling_Object
 
-import model  
-from model import Base, Document
+import database.model as model  
+from database.model import Base, Document
 #from papermage.magelib import Document
 
+doi_map = None
 
 ## Helper functions
 def sort_paths_by_file_size(paths):
@@ -33,7 +35,12 @@ def sort_paths_by_file_size(paths):
     sorted_paths = sorted(paths, key=lambda path: os.path.getsize(path))
     return sorted_paths
 
-
+def doi2cordid(doi):
+    global doi_map
+    if not doi_map:
+        doi_map = pickle.load(open("/workspace/src/database/doi_map.pkl", "rb"))
+        #get all the dois
+    return doi_map.get(doi, None)
 def setup_engine_session(user, password, address, port, db, Base=Base, echo=True):
     engine = create_engine(f"postgresql+psycopg2://{user}:{password}@{address}:{port}/{db}", echo=echo)
     session = Session(engine)
