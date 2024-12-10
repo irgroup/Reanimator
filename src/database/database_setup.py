@@ -3,6 +3,7 @@ import glob
 import logging
 import sys
 import os
+from habanero import Crossref
 from tqdm import tqdm
 from dotenv import dotenv_values
 from concurrent.futures import ProcessPoolExecutor
@@ -33,7 +34,6 @@ def sort_paths_by_file_size(paths):
     return sorted_paths
 
 
-
 def setup_engine_session(user, password, address, port, db, Base=Base, echo=True):
     engine = create_engine(f"postgresql+psycopg2://{user}:{password}@{address}:{port}/{db}", echo=echo)
     session = Session(engine)
@@ -42,6 +42,115 @@ def setup_engine_session(user, password, address, port, db, Base=Base, echo=True
 
 def positions_from_box(obj):
     return obj.boxes[0].l, obj.boxes[0].t, obj.boxes[0].w, obj.boxes[0].h, obj.boxes[0].page
+
+
+def cr_clean_authors(l_authors):
+    ret = []
+    for a in l_authors:
+        ret.append(f"{a['family']}, {a['given']}")
+
+    return ret
+
+
+def extract_data_from_docling(path_to_doclingDoc):
+    """
+    Extracts data from the given JSON file and prepares it for the model_class.
+    """
+    try:
+        current_doc = Document.from_json(doc_json)
+
+        current_doi = current_doc.name
+        try:
+            title = Crossref().works(ids = current_doi)["message"].title
+              
+        except:
+            try:   
+                # first line of text in document, usually title (except: e.g. Preprints with arxiv watermark on left)
+                title = current_doc.titles[0].text
+            except:
+                title = ""
+
+        try:
+            authors = cr_clean_authors(Crossref().works(ids = current_doi)["message"].authors)
+            # alternative with more detailed, structured information
+            # current_d.authors = cr.works(ids = current_doi)["message"].authors
+        except:
+            authors = []
+
+
+        # Box-like objects
+        ir_id = current_doi
+        #table_paths = sorted(glob.glob(f"{table_root_path}/{ir_id}*"), key=human_sort_key)
+        #json_extracts = [json.load(open(table_path, "r")) for table_path in table_paths]
+
+
+        for table in current_doc.tables:
+        # l, t, w, h, page = positions_from_box(table)
+        try:
+            t = model.Table(content=' '.join(table.export_to_dataframe().to_string().split()),
+                        # pass doc information here 
+                        document_id = current_doi,
+                        document = current_d,
+                        header = table.export_to_dataframe().columns.to_list()
+                        content = table.export_to_dataframe().values.tolist()
+                        pm_content = " ".join([a.text for a in table.data.table_cells])
+                        # caption self referential with doc
+                        caption=table.caption_text(current_doc),
+                        # position has to be normalized by page size, docling also calculated position relative to bottom left, e.g. left is l, right is 1-r
+                        position_left = table.prov[0].bbox.normalized(current_doc.pages[1].size).l,
+                        position_top = 1-table.prov[0].bbox.normalized(current_doc.pages[1].size).t,
+                        position_page = table.prov[0].page_no,
+                        width = 1 - table.prov[0].bbox.normalized(current_doc.pages[1].size).l - (1-table.prov[0].bbox.normalized(current_doc.pages[1].size).r),
+                        height = table.prov[0].bbox.normalized(current_doc.pages[1].size).t - (1-table.prov[0].bbox.normalized(current_doc.pages[1].size).b),
+                        # proxy references 
+                        references=["d1", "d2", "d3"]) 
+            tabs.append(t)
+
+        # Table related data
+        table_data = []
+        for i, table in enumerate(current_doc.tables):
+            l = table.prov[0].bbox.normalized(current_doc.pages[1].size).l
+            t = position_top = 1-table.prov[0].bbox.normalized(current_doc.pages[1].size).t
+            w = 1 - table.prov[0].bbox.normalized(current_doc.pages[1].size).l - (1-table.prov[0].bbox.normalized(current_doc.pages[1].size).r)
+            h = table.prov[0].bbox.normalized(current_doc.pages[1].size).t - (1-table.prov[0].bbox.normalized(current_doc.pages[1].size).b)
+            page = table.prov[0].page_no
+            t_caption = table.caption_text(current_doc)
+
+            ir_tab_id = table_paths[i].split("/")[-1].replace(".json", "") if i < len(table_paths) else ""
+            
+            t_caption_refs = get_fulltext_references(current_doc, t_caption)
+            table_name = get_table_name_from_caption(t_caption)
+            if text_matches_pattern(t_caption, "tables") or text_matches_pattern(table.text, "tables"):
+                table_data.append({
+                    'text': table.text,
+                    'ir_tab_id': ir_tab_id,
+                    'ir_id': ir_id,
+                    'header': json_extract['header'] if json_extract else None,
+                    'content': json_extract['content'] if json_extract else None,
+                    'position': (l, t, w, h, page),
+                    'caption': t_caption,
+                    'table_name': table_name,
+                    'references': t_caption_refs,
+                })
+
+        # Figure and equation data
+        figure_data = [positions_from_box(fig) for fig in current_doc.figures]
+        equation_data = [positions_from_box(eq) for eq in current_doc.equations]
+
+        # **Exclude 'current_doc' from the returned data**
+        return {
+            'current_doi': current_doi,
+            'title': title,
+            'authors': authors,
+            'table_data': table_data,
+            'figure_data': figure_data,
+            'equation_data': equation_data,
+        }
+    except Exception as e:
+        logging.error(f"Error extracting data from {path_to_doclingDoc}: {e}")
+        return None
+
+
 
 def extract_data_from_json(path_to_papermage_json, table_root_path):
     """
