@@ -35,7 +35,7 @@ Ensure that Docker and Docker Compose are installed with NVIDIA GPU support.
 Clone the **cord19plus** repository:
 
 ```bash
-git clone https://github.com/your-username/cord19plus.git
+git clone https://github.com/irgroup/cord19plus.git
 ```
 
 ### 3. Navigate to the Project Directory
