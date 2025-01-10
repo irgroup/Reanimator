@@ -216,7 +216,7 @@ def extract_data_from_json(path_to_papermage_json, table_root_path):
     except Exception as e:
         logging.error(f"Error extracting data from {path_to_papermage_json}: {e}")
         return None
-
+#test
 def create_model_objects(data, model_class, session):
     """
     Creates model_class objects using the extracted data and adds them to the session.
@@ -334,12 +334,12 @@ def parallel_extract_data(json_paths, model, session, num_workers=None, batch_si
                     session.rollback()
 
 
-def add_pdfs_to_database(folder_path, session, verbose=False, omit_bytes=False):
+def add_pdfs_to_database(folder_path, session, verbose=False, omit_bytes=False, first_n=None):
     # Get the list of PDF files
     if not verbose:
         logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
 
-    pdf_files = [filename for filename in os.listdir(folder_path) if filename.endswith(".pdf")]
+    pdf_files = [filename for filename in os.listdir(folder_path) if filename.endswith(".pdf")][:first_n]
     
     # Iterate through the PDF files with a progress bar
     cnt = 0

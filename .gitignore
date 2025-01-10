@@ -164,7 +164,3 @@ src/docling_out/*
 src/docling_out_test
 src/pdfs/*
 src/parallel_exec/pdf_list.txt
-Dockerfile
-docker-compose.yml
-.gitignore
-.gitignore
