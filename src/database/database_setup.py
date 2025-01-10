@@ -100,7 +100,7 @@ def extract_data_from_json(path_to_papermage_json, table_root_path):
     except Exception as e:
         logging.error(f"Error extracting data from {path_to_papermage_json}: {e}")
         return None
-
+#test
 def create_model_objects(data, model_class, session):
     """
     Creates model_class objects using the extracted data and adds them to the session.
