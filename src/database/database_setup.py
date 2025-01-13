@@ -11,14 +11,59 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from PyPDF2 import PdfReader
 import pickle
+from docling.document_converter import DocumentConverter, PdfFormatOption
+from docling.datamodel.pipeline_options import PdfPipelineOptions, TableFormerMode
+from docling.datamodel.base_models import InputFormat
+from docling_core.types.doc import DoclingDocument
+import re
 
-from database.docling_obj import Docling_Object
+from docling_obj import Docling_Object
 
-import database.model as model  
-from database.model import Base, Document
+
+import model as model  
+from model import Base, Document
 #from papermage.magelib import Document
 
 doi_map = None
+
+
+def positions_from_box_docling(obj, current_doc):
+    return obj.prov[0].bbox.normalized(current_doc.pages[1].size).l, 1-obj.prov[0].bbox.normalized(current_doc.pages[1].size).t, 1 - obj.prov[0].bbox.normalized(current_doc.pages[1].size).l - (1-obj.prov[0].bbox.normalized(current_doc.pages[1].size).r), obj.prov[0].bbox.normalized(current_doc.pages[1].size).t - (1-obj.prov[0].bbox.normalized(current_doc.pages[1].size).b), obj.prov[0].page_no
+
+def get_table_name_from_caption(caption: str) -> str:
+    m = re.search(
+        r"(^(tab[^ \t\r\f\n]+)([-\t \r\f])([a-z]?([_.-])?[0-9]+)([_.-])?[^\s:\-\.]?([a-z])?)", caption, flags=re.I
+    )
+    return m.group(0).rstrip(".:-") if m else None
+    
+# old, for papermage 
+def get_fulltext_references(doc, caption) -> list:
+    """
+    if sentence contains caption: take sentence[i-1:i+2]
+
+    :param doc: docling Document
+    :param caption: caption to look for in the full text
+    :return: context surrounding caption
+    """
+    table = get_table_name_from_caption(caption)
+    refs = []
+    i_sent = []
+ 
+    if table:
+        for block in [a.text for a in current_doc.texts]:
+            # only consider boxes, that are not intersecting with captions
+            if not block == caption:
+                if table in block.text:
+                    refs.append(block.text[:500])
+   
+    return refs
+
+def cr_clean_authors(l_authors):
+    ret = []
+    for a in l_authors:
+        ret.append(f"{a['family']}, {a['given']}")
+
+    return ret
 
 ## Helper functions
 def sort_paths_by_file_size(paths):
@@ -41,6 +86,7 @@ def doi2cordid(doi):
         doi_map = pickle.load(open("/workspace/src/database/doi_map.pkl", "rb"))
         #get all the dois
     return doi_map.get(doi, None)
+
 def setup_engine_session(user, password, address, port, db, Base=Base, echo=True):
     engine = create_engine(f"postgresql+psycopg2://{user}:{password}@{address}:{port}/{db}", echo=echo)
     session = Session(engine)
@@ -50,6 +96,8 @@ def setup_engine_session(user, password, address, port, db, Base=Base, echo=True
 def positions_from_box(obj):
     return obj.boxes[0].l, obj.boxes[0].t, obj.boxes[0].w, obj.boxes[0].h, obj.boxes[0].page
 
+def positions_from_box_docling(obj, current_doc):
+    return obj.prov[0].bbox.normalized(current_doc.pages[1].size).l, 1-obj.prov[0].bbox.normalized(current_doc.pages[1].size).t, 1 - obj.prov[0].bbox.normalized(current_doc.pages[1].size).l - (1-obj.prov[0].bbox.normalized(current_doc.pages[1].size).r), obj.prov[0].bbox.normalized(current_doc.pages[1].size).t - (1-obj.prov[0].bbox.normalized(current_doc.pages[1].size).b), obj.prov[0].page_no
 
 def cr_clean_authors(l_authors):
     ret = []
@@ -57,107 +105,6 @@ def cr_clean_authors(l_authors):
         ret.append(f"{a['family']}, {a['given']}")
 
     return ret
-
-
-def extract_data_from_docling(path_to_doclingDoc):
-    """
-    Extracts data from the given JSON file and prepares it for the model_class.
-    """
-    return
-    try:
-        current_doc = Document.from_json(doc_json)
-
-        current_doi = current_doc.name
-        try:
-            title = Crossref().works(ids = current_doi)["message"].title
-              
-        except:
-            try:   
-                # first line of text in document, usually title (except: e.g. Preprints with arxiv watermark on left)
-                title = current_doc.titles[0].text
-            except:
-                title = ""
-
-        try:
-            authors = cr_clean_authors(Crossref().works(ids = current_doi)["message"].authors)
-            # alternative with more detailed, structured information
-            # current_d.authors = cr.works(ids = current_doi)["message"].authors
-        except:
-            authors = []
-
-
-        # Box-like objects
-        ir_id = current_doi
-        #table_paths = sorted(glob.glob(f"{table_root_path}/{ir_id}*"), key=human_sort_key)
-        #json_extracts = [json.load(open(table_path, "r")) for table_path in table_paths]
-
-
-        for table in current_doc.tables:
-        # l, t, w, h, page = positions_from_box(table)
-            try:
-                t = model.Table(content=' '.join(table.export_to_dataframe().to_string().split()),
-                            # pass doc information here 
-                            document_id = current_doi,
-                            document = current_d,
-                            header = table.export_to_dataframe().columns.to_list(),
-                            content = table.export_to_dataframe().values.tolist(),
-                            pm_content = " ".join([a.text for a in table.data.table_cells]),
-                            # caption self referential with doc
-                            caption=table.caption_text(current_doc),
-                            # position has to be normalized by page size, docling also calculated position relative to bottom left, e.g. left is l, right is 1-r
-                            position_left = table.prov[0].bbox.normalized(current_doc.pages[1].size).l,
-                            position_top = 1-table.prov[0].bbox.normalized(current_doc.pages[1].size).t,
-                            position_page = table.prov[0].page_no,
-                            width = 1 - table.prov[0].bbox.normalized(current_doc.pages[1].size).l - (1-table.prov[0].bbox.normalized(current_doc.pages[1].size).r),
-                            height = table.prov[0].bbox.normalized(current_doc.pages[1].size).t - (1-table.prov[0].bbox.normalized(current_doc.pages[1].size).b),
-                            # proxy references 
-                            references=["d1", "d2", "d3"]) 
-                tabs.append(t)
-
-            # Table related data
-            table_data = []
-            for i, table in enumerate(current_doc.tables):
-                l = table.prov[0].bbox.normalized(current_doc.pages[1].size).l
-                t = position_top = 1-table.prov[0].bbox.normalized(current_doc.pages[1].size).t
-                w = 1 - table.prov[0].bbox.normalized(current_doc.pages[1].size).l - (1-table.prov[0].bbox.normalized(current_doc.pages[1].size).r)
-                h = table.prov[0].bbox.normalized(current_doc.pages[1].size).t - (1-table.prov[0].bbox.normalized(current_doc.pages[1].size).b)
-                page = table.prov[0].page_no
-                t_caption = table.caption_text(current_doc)
-
-                ir_tab_id = table_paths[i].split("/")[-1].replace(".json", "") if i < len(table_paths) else ""
-                
-                t_caption_refs = get_fulltext_references(current_doc, t_caption)
-                table_name = get_table_name_from_caption(t_caption)
-                if text_matches_pattern(t_caption, "tables") or text_matches_pattern(table.text, "tables"):
-                    table_data.append({
-                        'text': table.text,
-                        'ir_tab_id': ir_tab_id,
-                        'ir_id': ir_id,
-                        'header': json_extract['header'] if json_extract else None,
-                        'content': json_extract['content'] if json_extract else None,
-                        'position': (l, t, w, h, page),
-                        'caption': t_caption,
-                        'table_name': table_name,
-                        'references': t_caption_refs,
-                    })
-
-            # Figure and equation data
-            figure_data = [positions_from_box(fig) for fig in current_doc.figures]
-            equation_data = [positions_from_box(eq) for eq in current_doc.equations]
-
-            # **Exclude 'current_doc' from the returned data**
-            return {
-                'current_doi': current_doi,
-                'title': title,
-                'authors': authors,
-                'table_data': table_data,
-                'figure_data': figure_data,
-                'equation_data': equation_data,
-            }
-    except Exception as e:
-        logging.error(f"Error extracting data from {path_to_doclingDoc}: {e}")
-        return None
-
 
 
 def extract_data_from_json(path_to_papermage_json, table_root_path):
@@ -217,6 +164,89 @@ def extract_data_from_json(path_to_papermage_json, table_root_path):
     except Exception as e:
         logging.error(f"Error extracting data from {path_to_papermage_json}: {e}")
         return None
+
+def extract_data_from_json_docling(path_to_dockling_json):
+    """
+    Extracts data from the given JSON file and prepares it for the model_class.
+    """
+    try:
+        current_doc = DoclingDocument.load_from_json(path_to_dockling_json)
+
+        # DOI
+        try:
+            current_doi = current_doc.name
+        except:
+            try:
+                current_doi = path_to_dockling_json.split("/")[-1].replace(".json", "").replace("$", "/")
+            except:
+                current_doi = ""
+        
+        # Title
+        try:
+            title = Crossref().works(ids = current_doi)["message"].title
+              
+        except:
+            try:   
+                # first line of text in document, usually title (except: e.g. Preprints with arxiv watermark on left)
+                title = current_doc.titles[0].text
+            except:
+                title = ""
+
+        # Authors
+        try:
+            authors = cr_clean_authors(Crossref().works(ids = current_doi)["message"].authors)
+            # alternative with more detailed, structured information
+            # current_d.authors = cr.works(ids = current_doi)["message"].authors
+        except:
+            authors = []
+
+
+        # Box-like objects
+        ir_id = current_doi
+
+        # Table related data
+        table_data = []
+        for i, table in enumerate(current_doc.tables):
+    
+            l, t, w, h, page = positions_from_box_docling(table, current_doc)
+
+            # MUST BE UPDATED
+            ir_tab_id = ir_id+"#"+str(i)
+            t_caption = table.caption_text(current_doc)
+            # TO DO Update in text refences
+            t_caption_refs = []
+            table_name = get_table_name_from_caption(t_caption)
+            # No more checking if this is a table based on caption text, relying on quality of recognition
+            table_data.append({
+                    'text': " ".join([a.text for a in table.data.table_cells]),
+                    'ir_tab_id': ir_tab_id,
+                    'ir_id': ir_id,
+                    'header': table.export_to_dataframe().columns.to_list(),
+                    'content': table.export_to_dataframe().values.tolist(),
+                    'position': (l, t, w, h, page),
+                    'caption': t_caption,
+                    'table_name': table_name,
+                    'references': t_caption_refs,
+                })
+
+        # Figure and equation data
+        figure_data = [positions_from_box_docling(fig, current_doc) for fig in current_doc.pictures]
+        equation_data = []
+
+        # **Exclude 'current_doc' from the returned data**
+        return {
+            'current_doi': current_doi,
+            'title': title,
+            'authors': authors,
+            'table_data': table_data,
+            'figure_data': figure_data,
+            'equation_data': equation_data,
+        }
+    except Exception as e:
+        logging.error(f"Error extracting data from {path_to_dockling_json}: {e}")
+        return None
+
+
 #test
 def create_model_objects(data, model_class, session):
     """
@@ -301,8 +331,11 @@ def create_model_objects(data, model_class, session):
     except Exception as e:
         logging.error(f"Error creating model objects: {e}")
 
-def extract_data_wrapper(json_path):
+def extract_data_wrapper_old(json_path):
     return extract_data_from_json(json_path, TABLE_ROOT_PATH)
+
+def extract_data_wrapper(json_path):
+    return extract_data_from_json_docling(json_path)
 
 def parallel_extract_data(json_paths, model, session, num_workers=None, batch_size = 10):
     
