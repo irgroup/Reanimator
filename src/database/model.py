@@ -46,7 +46,7 @@ class Document(Base):
     tables: Mapped[List["Table"]] = relationship(back_populates="document")
     figures: Mapped[List["Figure"]] = relationship(back_populates="document")
     equations: Mapped[List["Equation"]] = relationship(back_populates="document")
-
+    full_text: Mapped[str] = mapped_column(String(), nullable=True)
     
     authors: Mapped[List["Author"]] = relationship(secondary=association_table)
 
@@ -112,8 +112,10 @@ class Figure(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     ir_id: Mapped[str] = mapped_column(String(1024))
+    figure_name = mapped_column(String(2048), nullable=True)
 
     caption: Mapped[str] = mapped_column(String(2**15), nullable=True)
+    references: Mapped[List[str]] = mapped_column(ARRAY(String(2**15)), nullable=True)
 
     document_id: Mapped[int] = mapped_column(ForeignKey("document.doi"))
     document: Mapped["Document"] = relationship(back_populates="figures")

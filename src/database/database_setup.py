@@ -19,6 +19,8 @@ import re
 
 from docling_obj import Docling_Object
 
+import nltk
+nltk.download('punkt_tab')
 
 import model as model  
 from model import Base, Document
@@ -32,7 +34,17 @@ def positions_from_box_docling(obj, current_doc):
 
 def get_table_name_from_caption(caption: str) -> str:
     m = re.search(
-        r"(^(tab[^ \t\r\f\n]+)([-\t \r\f])([a-z]?([_.-])?[0-9]+)([_.-])?[^\s:\-\.]?([a-z])?)", caption, flags=re.I
+        # does not find romans, e.g. Table II
+        #r"(^(tab[^ \t\r\f\n]+)([-\t \r\f])([a-z]?([_.-])?[0-9]+)([_.-])?[^\s:\-\.]?([a-z])?)", caption, flags=re.I
+        r"(^(tab[^ \t\r\f\n]+)([-\t \r\f])([a-z]?([_.-])?(?:[0-9]+|[IVXLCDM]+))([_.-])?[^\s:\-\.]?([a-z])?)", caption, flags=re.I
+    )
+    return m.group(0).rstrip(".:-") if m else None
+
+def get_figure_name_from_caption(caption: str) -> str:
+    m = re.search(
+        # does not find romans, e.g. Fig II
+        # r"(^(fig[^ \t\r\f\n]+)([-\t \r\f])([a-z]?([_.-])?[0-9]+)([_.-])?[^\s:\-\.]?([a-z])?)", caption, flags=re.I
+        r"(^(fig[^ \t\r\f\n]+)([-\t \r\f])([a-z]?([_.-])?(?:[0-9]+|[IVXLCDM]+))([_.-])?[^\s:\-\.]?([a-z])?)", caption, flags=re.I
     )
     return m.group(0).rstrip(".:-") if m else None
     
@@ -105,6 +117,25 @@ def cr_clean_authors(l_authors):
         ret.append(f"{a['family']}, {a['given']}")
 
     return ret
+
+def docling_intext_refs(table_name, caption, doc, next_x_sentences=1):
+    references = []
+    
+    try:
+        for item in doc.texts:
+            if table_name in item.text:
+                if not caption == item.text:
+                    paragraph = nltk.sent_tokenize(item.text)
+                    
+                    for i, sentence in enumerate(paragraph):
+                        if table_name in sentence:
+                            if len(paragraph) > i+next_x_sentences:
+                                references.append(paragraph[i] + " " + paragraph[i+next_x_sentences])       
+                            else:
+                                references.append(sentence)                                
+    except:
+        return references
+    return references
 
 
 def extract_data_from_json(path_to_papermage_json, table_root_path):
@@ -204,19 +235,27 @@ def extract_data_from_json_docling(path_to_dockling_json):
         # Box-like objects
         ir_id = current_doi
 
+        # Full text
+        try:
+            fulltext = current_doc.export_to_text()
+        except:
+            fulltext = ""
+
         # Table related data
         table_data = []
         for i, table in enumerate(current_doc.tables):
     
             l, t, w, h, page = positions_from_box_docling(table, current_doc)
 
-            # MUST BE UPDATED
             ir_tab_id = ir_id+"#"+str(i)
             t_caption = table.caption_text(current_doc)
-            # TO DO Update in text refences
-            t_caption_refs = []
             table_name = get_table_name_from_caption(t_caption)
-            # No more checking if this is a table based on caption text, relying on quality of recognition
+
+            if table_name:
+                t_caption_refs = docling_intext_refs(table_name, t_caption, current_doc, 1)
+            else:
+                t_caption_refs = []
+            
             table_data.append({
                     'text': " ".join([a.text for a in table.data.table_cells]),
                     'ir_tab_id': ir_tab_id,
@@ -229,8 +268,31 @@ def extract_data_from_json_docling(path_to_dockling_json):
                     'references': t_caption_refs,
                 })
 
-        # Figure and equation data
-        figure_data = [positions_from_box_docling(fig, current_doc) for fig in current_doc.pictures]
+        # Figure  data
+        figure_data = []
+        for i, figure in enumerate(current_doc.pictures):
+    
+            l, t, w, h, page = positions_from_box_docling(figure, current_doc)
+
+            f_caption = figure.caption_text(current_doc)
+            figure_name = get_figure_name_from_caption(f_caption)
+            if figure_name:
+                f_caption_refs = docling_intext_refs(figure_name, f_caption, current_doc, 1)
+            else:
+                f_caption_refs = []
+            
+            figure_data.append({
+                    'ir_id': ir_id,
+                    'position': (l, t, w, h, page),
+                    'caption': f_caption,
+                    'figure_name': figure_name,
+                    'references': f_caption_refs,
+                })
+        
+        
+        
+        # equation data
+        # docling does not find equations
         equation_data = []
 
         # **Exclude 'current_doc' from the returned data**
@@ -238,6 +300,7 @@ def extract_data_from_json_docling(path_to_dockling_json):
             'current_doi': current_doi,
             'title': title,
             'authors': authors,
+            'full_text': fulltext,
             'table_data': table_data,
             'figure_data': figure_data,
             'equation_data': equation_data,
@@ -258,7 +321,7 @@ def create_model_objects(data, model_class, session):
 
     try:
         p = model_class.Publication()
-        current_d = model_class.Document(doi=data['current_doi'], title=data['title'], publication=p)
+        current_d = model_class.Document(doi=data['current_doi'], title=data['title'], full_text=data["full_text"], publication=p)
         current_d.authors = [model_class.Author(name=name_) for name_ in data['authors']]
 
         # Tables
@@ -291,12 +354,14 @@ def create_model_objects(data, model_class, session):
             f = model_class.Figure(
                 document_id=data['current_doi'],
                 ir_id=data['current_doi'],
+                figure_name=figure['figure_name'],
                 document=current_d,
                 position_left=l,
                 position_top=t,
                 position_page=page,
                 width=w,
-                height=h
+                height=h,
+                references=figure['references'],
             )
             figs.append(f)
 
@@ -331,6 +396,8 @@ def create_model_objects(data, model_class, session):
     except Exception as e:
         logging.error(f"Error creating model objects: {e}")
 
+
+
 def extract_data_wrapper_old(json_path):
     return extract_data_from_json(json_path, TABLE_ROOT_PATH)
 
@@ -338,6 +405,36 @@ def extract_data_wrapper(json_path):
     return extract_data_from_json_docling(json_path)
 
 def parallel_extract_data(json_paths, model, session, num_workers=None, batch_size = 10):
+    
+    with tqdm(total=len(json_paths), desc="Overall Progress") as pbar:
+        with ProcessPoolExecutor(max_workers=num_workers) as executor:
+            for i in range(0, len(json_paths), batch_size):
+                batch_paths = json_paths[i:i + batch_size]
+
+                # Extract data in parallel for the current batch
+                with tqdm(total=len(batch_paths), desc="Extracting Data", leave=False) as extract_pbar:
+                    extracted_data = []
+                    # Using list() to eagerly evaluate executor.map and catch exceptions
+                    for data in executor.map(extract_data_wrapper, batch_paths):
+                        if data is not None:
+                            extracted_data.append(data)
+                        extract_pbar.update(1)
+
+                # Prepare session sequentially for the extracted data
+                with tqdm(total=len(extracted_data), desc="Preparing Session", leave=False) as prepare_pbar:
+                    for data in extracted_data:
+                        create_model_objects(data, model, session)
+                        prepare_pbar.update(1)
+                        pbar.update(1)
+
+                # Commit session after processing the batch
+                try:
+                    session.commit()
+                except Exception as e:
+                    logging.error(f"Error committing session: {e}")
+                    session.rollback()
+
+def parallel_extract_data_update(json_paths, model, session, num_workers=None, batch_size = 10):
     
     with tqdm(total=len(json_paths), desc="Overall Progress") as pbar:
         with ProcessPoolExecutor(max_workers=num_workers) as executor:
