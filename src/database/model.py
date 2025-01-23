@@ -84,7 +84,7 @@ class Table(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     ir_id: Mapped[str] = mapped_column(String(1024))
     ir_tab_id: Mapped[str] = mapped_column(String(1024))
-    table_name = mapped_column(String(2048), nullable=True)
+    table_name: Mapped[str] = mapped_column(String(2048), nullable=True)
 
     pm_content: Mapped[str] = mapped_column(String(2**15), nullable=True) #32768
 
@@ -112,7 +112,7 @@ class Figure(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     ir_id: Mapped[str] = mapped_column(String(1024))
-    figure_name = mapped_column(String(2048), nullable=True)
+    figure_name: Mapped[str] = mapped_column(String(2048), nullable=True)
 
     caption: Mapped[str] = mapped_column(String(2**15), nullable=True)
     references: Mapped[List[str]] = mapped_column(ARRAY(String(2**15)), nullable=True)

@@ -119,8 +119,7 @@ def cr_clean_authors(l_authors):
     return ret
 
 def docling_intext_refs(table_name, caption, doc, next_x_sentences=1):
-    references = []
-    
+    references = []  
     try:
         for item in doc.texts:
             if table_name in item.text:
@@ -131,11 +130,12 @@ def docling_intext_refs(table_name, caption, doc, next_x_sentences=1):
                         if table_name in sentence:
                             if len(paragraph) > i+next_x_sentences:
                                 references.append(paragraph[i] + " " + paragraph[i+next_x_sentences])       
-                            else:
-                                references.append(sentence)                                
+                            else:    
+                                references.append(sentence) 
+        return references                               
     except:
         return references
-    return references
+    
 
 
 def extract_data_from_json(path_to_papermage_json, table_root_path):
@@ -196,25 +196,23 @@ def extract_data_from_json(path_to_papermage_json, table_root_path):
         logging.error(f"Error extracting data from {path_to_papermage_json}: {e}")
         return None
 
-def extract_data_from_json_docling(path_to_dockling_json):
+def extract_data_from_json_docling(path_to_docling_json):
     """
     Extracts data from the given JSON file and prepares it for the model_class.
     """
     try:
-        current_doc = DoclingDocument.load_from_json(path_to_dockling_json)
+        current_doc = DoclingDocument.load_from_json(path_to_docling_json)
 
         # DOI
         try:
-            current_doi = current_doc.name
-        except:
-            try:
-                current_doi = path_to_dockling_json.split("/")[-1].replace(".json", "").replace("$", "/")
-            except:
-                current_doi = ""
+            current_doi = path_to_docling_json.split("/")[-1].replace(".json", "").replace("$", "/")
+        except:       
+            current_doi = ""
         
         # Title
         try:
-            title = Crossref().works(ids = current_doi)["message"].title
+            #title = Crossref().works(ids = current_doi)["message"].title
+            title = ""
               
         except:
             try:   
@@ -231,31 +229,24 @@ def extract_data_from_json_docling(path_to_dockling_json):
         except:
             authors = []
 
-
         # Box-like objects
         ir_id = current_doi
-
         # Full text
         try:
             fulltext = current_doc.export_to_text()
         except:
             fulltext = ""
-
         # Table related data
         table_data = []
         for i, table in enumerate(current_doc.tables):
-    
             l, t, w, h, page = positions_from_box_docling(table, current_doc)
-
             ir_tab_id = ir_id+"#"+str(i)
             t_caption = table.caption_text(current_doc)
             table_name = get_table_name_from_caption(t_caption)
-
             if table_name:
                 t_caption_refs = docling_intext_refs(table_name, t_caption, current_doc, 1)
             else:
-                t_caption_refs = []
-            
+                t_caption_refs = []     
             table_data.append({
                     'text': " ".join([a.text for a in table.data.table_cells]),
                     'ir_tab_id': ir_tab_id,
@@ -267,20 +258,16 @@ def extract_data_from_json_docling(path_to_dockling_json):
                     'table_name': table_name,
                     'references': t_caption_refs,
                 })
-
         # Figure  data
         figure_data = []
         for i, figure in enumerate(current_doc.pictures):
-    
             l, t, w, h, page = positions_from_box_docling(figure, current_doc)
-
             f_caption = figure.caption_text(current_doc)
             figure_name = get_figure_name_from_caption(f_caption)
             if figure_name:
                 f_caption_refs = docling_intext_refs(figure_name, f_caption, current_doc, 1)
             else:
-                f_caption_refs = []
-            
+                f_caption_refs = []   
             figure_data.append({
                     'ir_id': ir_id,
                     'position': (l, t, w, h, page),
@@ -288,13 +275,9 @@ def extract_data_from_json_docling(path_to_dockling_json):
                     'figure_name': figure_name,
                     'references': f_caption_refs,
                 })
-        
-        
-        
         # equation data
         # docling does not find equations
         equation_data = []
-
         # **Exclude 'current_doc' from the returned data**
         return {
             'current_doi': current_doi,
@@ -306,7 +289,7 @@ def extract_data_from_json_docling(path_to_dockling_json):
             'equation_data': equation_data,
         }
     except Exception as e:
-        logging.error(f"Error extracting data from {path_to_dockling_json}: {e}")
+        logging.error(f"Error extracting data from {path_to_docling_json}: {e}")
         return None
 
 
@@ -350,7 +333,7 @@ def create_model_objects(data, model_class, session):
         # Figures
         figs = []
         for figure in data['figure_data']:
-            l, t, w, h, page = figure
+            l, t, w, h, page = figure["position"]
             f = model_class.Figure(
                 document_id=data['current_doi'],
                 ir_id=data['current_doi'],
@@ -393,6 +376,7 @@ def create_model_objects(data, model_class, session):
             session.add(f)
         for e in eqs:
             session.add(e)
+        session.add(current_d)
     except Exception as e:
         logging.error(f"Error creating model objects: {e}")
 
@@ -433,37 +417,6 @@ def parallel_extract_data(json_paths, model, session, num_workers=None, batch_si
                 except Exception as e:
                     logging.error(f"Error committing session: {e}")
                     session.rollback()
-
-def parallel_extract_data_update(json_paths, model, session, num_workers=None, batch_size = 10):
-    
-    with tqdm(total=len(json_paths), desc="Overall Progress") as pbar:
-        with ProcessPoolExecutor(max_workers=num_workers) as executor:
-            for i in range(0, len(json_paths), batch_size):
-                batch_paths = json_paths[i:i + batch_size]
-
-                # Extract data in parallel for the current batch
-                with tqdm(total=len(batch_paths), desc="Extracting Data", leave=False) as extract_pbar:
-                    extracted_data = []
-                    # Using list() to eagerly evaluate executor.map and catch exceptions
-                    for data in executor.map(extract_data_wrapper, batch_paths):
-                        if data is not None:
-                            extracted_data.append(data)
-                        extract_pbar.update(1)
-
-                # Prepare session sequentially for the extracted data
-                with tqdm(total=len(extracted_data), desc="Preparing Session", leave=False) as prepare_pbar:
-                    for data in extracted_data:
-                        create_model_objects(data, model, session)
-                        prepare_pbar.update(1)
-                        pbar.update(1)
-
-                # Commit session after processing the batch
-                try:
-                    session.commit()
-                except Exception as e:
-                    logging.error(f"Error committing session: {e}")
-                    session.rollback()
-
 
 def add_pdfs_to_database(folder_path, session, verbose=False, omit_bytes=False, first_n=None):
     # Get the list of PDF files
