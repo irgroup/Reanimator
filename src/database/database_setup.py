@@ -28,54 +28,26 @@ from model import Base, Document
 
 doi_map = None
 
-
 def positions_from_box_docling(obj, current_doc):
     return obj.prov[0].bbox.normalized(current_doc.pages[1].size).l, 1-obj.prov[0].bbox.normalized(current_doc.pages[1].size).t, 1 - obj.prov[0].bbox.normalized(current_doc.pages[1].size).l - (1-obj.prov[0].bbox.normalized(current_doc.pages[1].size).r), obj.prov[0].bbox.normalized(current_doc.pages[1].size).t - (1-obj.prov[0].bbox.normalized(current_doc.pages[1].size).b), obj.prov[0].page_no
 
 def get_table_name_from_caption(caption: str) -> str:
     m = re.search(
-        # does not find romans, e.g. Table II
-        #r"(^(tab[^ \t\r\f\n]+)([-\t \r\f])([a-z]?([_.-])?[0-9]+)([_.-])?[^\s:\-\.]?([a-z])?)", caption, flags=re.I
         r"(^(tab[^ \t\r\f\n]+)([-\t \r\f])([a-z]?([_.-])?(?:[0-9]+|[IVXLCDM]+))([_.-])?[^\s:\-\.]?([a-z])?)", caption, flags=re.I
     )
     return m.group(0).rstrip(".:-") if m else None
 
 def get_figure_name_from_caption(caption: str) -> str:
     m = re.search(
-        # does not find romans, e.g. Fig II
-        # r"(^(fig[^ \t\r\f\n]+)([-\t \r\f])([a-z]?([_.-])?[0-9]+)([_.-])?[^\s:\-\.]?([a-z])?)", caption, flags=re.I
         r"(^(fig[^ \t\r\f\n]+)([-\t \r\f])([a-z]?([_.-])?(?:[0-9]+|[IVXLCDM]+))([_.-])?[^\s:\-\.]?([a-z])?)", caption, flags=re.I
     )
     return m.group(0).rstrip(".:-") if m else None
     
-# old, for papermage 
-def get_fulltext_references(doc, caption) -> list:
-    """
-    if sentence contains caption: take sentence[i-1:i+2]
-
-    :param doc: docling Document
-    :param caption: caption to look for in the full text
-    :return: context surrounding caption
-    """
-    table = get_table_name_from_caption(caption)
-    refs = []
-    i_sent = []
- 
-    if table:
-        for block in [a.text for a in current_doc.texts]:
-            # only consider boxes, that are not intersecting with captions
-            if not block == caption:
-                if table in block.text:
-                    refs.append(block.text[:500])
-   
-    return refs
 
 def cr_clean_authors(l_authors):
     ret = []
     for a in l_authors:
         ret.append(f"{a['family']}, {a['given']}")
-
-    return ret
 
 ## Helper functions
 def sort_paths_by_file_size(paths):
@@ -105,16 +77,8 @@ def setup_engine_session(user, password, address, port, db, Base=Base, echo=True
     Base.metadata.create_all(engine)
     return session
 
-def positions_from_box(obj):
-    return obj.boxes[0].l, obj.boxes[0].t, obj.boxes[0].w, obj.boxes[0].h, obj.boxes[0].page
-
 def positions_from_box_docling(obj, current_doc):
     return obj.prov[0].bbox.normalized(current_doc.pages[1].size).l, 1-obj.prov[0].bbox.normalized(current_doc.pages[1].size).t, 1 - obj.prov[0].bbox.normalized(current_doc.pages[1].size).l - (1-obj.prov[0].bbox.normalized(current_doc.pages[1].size).r), obj.prov[0].bbox.normalized(current_doc.pages[1].size).t - (1-obj.prov[0].bbox.normalized(current_doc.pages[1].size).b), obj.prov[0].page_no
-
-def cr_clean_authors(l_authors):
-    ret = []
-    for a in l_authors:
-        ret.append(f"{a['family']}, {a['given']}")
 
     return ret
 
@@ -136,65 +100,6 @@ def docling_intext_refs(table_name, caption, doc, next_x_sentences=1):
     except:
         return references
     
-
-
-def extract_data_from_json(path_to_papermage_json, table_root_path):
-    """
-    Extracts data from the given JSON file and prepares it for the model_class.
-    """
-    try:
-        with open(path_to_papermage_json, "r") as f:
-            doc_json = json.load(f)
-            current_doc = Document.from_json(doc_json)
-
-        current_doi = path_to_papermage_json.split("/")[-1].replace(".json", "")
-        title = current_doc.titles[0].text if current_doc.titles else ""
-        authors = [name_.strip() for name_ in current_doc.authors[0].text.split(",")] if current_doc.authors else []
-
-        # Box-like objects
-        ir_id = current_doi
-        table_paths = sorted(glob.glob(f"{table_root_path}/{ir_id}*"), key=human_sort_key)
-        json_extracts = [json.load(open(table_path, "r")) for table_path in table_paths]
-
-        # Table related data
-        table_data = []
-        for i, table in enumerate(current_doc.tables):
-            json_extract = json_extracts[i] if i < len(json_extracts) else None
-            l, t, w, h, page = positions_from_box(table)
-            t_caps_cleaned = get_cleaned_captions(current_doc)
-            ir_tab_id = table_paths[i].split("/")[-1].replace(".json", "") if i < len(table_paths) else ""
-            t_caption = get_caption_for_box(box=table.boxes[0], captions=current_doc.captions, caption_ids=t_caps_cleaned["tables"])
-            t_caption_refs = get_fulltext_references(current_doc, t_caption)
-            table_name = get_table_name_from_caption(t_caption)
-            if text_matches_pattern(t_caption, "tables") or text_matches_pattern(table.text, "tables"):
-                table_data.append({
-                    'text': table.text,
-                    'ir_tab_id': ir_tab_id,
-                    'ir_id': ir_id,
-                    'header': json_extract['header'] if json_extract else None,
-                    'content': json_extract['content'] if json_extract else None,
-                    'position': (l, t, w, h, page),
-                    'caption': t_caption,
-                    'table_name': table_name,
-                    'references': t_caption_refs,
-                })
-
-        # Figure and equation data
-        figure_data = [positions_from_box(fig) for fig in current_doc.figures]
-        equation_data = [positions_from_box(eq) for eq in current_doc.equations]
-
-        # **Exclude 'current_doc' from the returned data**
-        return {
-            'current_doi': current_doi,
-            'title': title,
-            'authors': authors,
-            'table_data': table_data,
-            'figure_data': figure_data,
-            'equation_data': equation_data,
-        }
-    except Exception as e:
-        logging.error(f"Error extracting data from {path_to_papermage_json}: {e}")
-        return None
 
 def extract_data_from_json_docling(path_to_docling_json):
     """
@@ -380,10 +285,19 @@ def create_model_objects(data, model_class, session):
     except Exception as e:
         logging.error(f"Error creating model objects: {e}")
 
+def update_document_title(doi, titles_dict, session):
+    session.query(Document).filter(Document.doi == doi).update(
+    {
+        Document.title: titles_dict[doi]
+    },
+    synchronize_session=False
+    )
+    try:
+        session.commit()
+    except Exception as e:
+        logging.error(f"Error committing session: {e}")
+        session.rollback()
 
-
-def extract_data_wrapper_old(json_path):
-    return extract_data_from_json(json_path, TABLE_ROOT_PATH)
 
 def extract_data_wrapper(json_path):
     return extract_data_from_json_docling(json_path)
