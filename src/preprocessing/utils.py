@@ -5,6 +5,9 @@ import os
 import re
 import pandas as pd
 from typing import List
+import json
+
+from umbrela.gpt_judge import GPTJudge
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.schema import Document
@@ -90,37 +93,184 @@ def load_vectorstore(vectorstore_path: str, embedding_model: str = "text-embeddi
     return vectorstore
 
 
-def process_topic(key, topic, pooling_results, judge_gpt):
+def process_topic(key, topic, candidates, judge_gpt, safe_mode=False, verbose=False, MODEL_NAME="gpt-4o-mini"):
     """Process a single topic and return the key and judgments."""
 
-    if not key in pooling_results:
-        return key, []
+    if safe_mode:
+        #safe judgments as json file
+        judge_gpt = GPTJudge(qrel="cord19", prompt_type="bing", engine=MODEL_NAME)
+    
     query = topic["title"] + " " + topic["description"]
-    candidates = [
-        {"doc": {"segment": chunk.page_content}, "docid": chunk.metadata['id']} 
-        for chunk in pooling_results[key]
-    ]
 
     input_dict = {
         "query": {"text": query, "qid": key},
         "candidates": candidates
     }
-
     judgments = judge_gpt.judge(request_dict=input_dict)
     for i in range(len(judgments)):
         judgments[i]["docid"] = candidates[i]["docid"]
 
-    return key, judgments
+    if safe_mode:
+        #safe judgments as json file
+        with open(f"judgments/{key}.json", "w") as f:
+            json.dump(judgments, f)
+
+        del judge_gpt
+        return key, judgments
+    else:
+        return key, judgments
+
+
+def parallel_process_topics_safe(topics, pooling_results, judge_gpt, max_workers=20, verbose=False, MODEL_NAME="gpt-4o-mini"):
+    """
+    Process topics in parallel using a ProcessPoolExecutor, skipping those that have already been processed.
+    
+    For each topic:
+      - If judgments/{key}.json exists, load its content.
+      - Otherwise, run process_topic (with safe_mode=True) in parallel so that it writes out its judgments.
+    Finally, aggregate all judgments into one dictionary and return it.
+    
+    Note: Ensure that judge_gpt and pooling_results are picklable.
+    """
+    # Ensure the 'judgments' directory exists.
+    judgments_dir = "judgments"
+    if not os.path.exists(judgments_dir):
+        os.makedirs(judgments_dir)
+    
+    # Dictionary to store aggregated results: key -> judgments
+    aggregated_results = {}
+
+    # Determine which topics still need to be processed.
+    topics_to_process = []
+    for key, topic in topics.items():
+        judgment_file = os.path.join(judgments_dir, f"{key}.json")
+        if os.path.exists(judgment_file):
+            # Load judgments that have already been processed.
+            try:
+                with open(judgment_file, "r") as f:
+                    aggregated_results[key] = json.load(f)
+            except Exception as e:
+                print(f"Error reading {judgment_file}: {e}")
+                aggregated_results[key] = []
+        else:
+            topics_to_process.append((key, topic))
+
+    # Process the remaining topics in parallel using ProcessPoolExecutor.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit each topic for processing. The process_topic function, when called with safe_mode=True,
+        # writes the judgments to a file.
+        candidates_dict = {key: [{"doc": {"segment": chunk.page_content}, "docid": chunk.metadata['id']} 
+                                 for chunk in pooling_results[key]]
+                           for key in [tup[0] for tup in topics_to_process]}
+
+        future_to_key = {
+            executor.submit(process_topic, key, topic, candidates_dict[key], judge_gpt, True, verbose, MODEL_NAME): key
+            for key, topic in topics_to_process
+        }
+        
+        # Use tqdm to display a progress bar.
+        for future in tqdm(concurrent.futures.as_completed(future_to_key),
+                           total=len(future_to_key),
+                           desc="Processing topics",
+                           unit="topic"):
+            key = future_to_key[future]
+            try:
+                # Since process_topic is in safe mode, it writes the file and does not return a value.
+                future.result()
+            except Exception as e:
+                print(f"Error processing topic {key}: {e}")
+
+    # Load the judgments from disk for the topics that were processed in this run.
+    for key, _ in topics_to_process:
+        judgment_file = os.path.join(judgments_dir, f"{key}.json")
+        if os.path.exists(judgment_file):
+            try:
+                with open(judgment_file, "r") as f:
+                    aggregated_results[key] = json.load(f)
+            except Exception as e:
+                print(f"Error reading {judgment_file} after processing: {e}")
+                aggregated_results[key] = []
+        else:
+            print(f"Warning: Judgments file for topic {key} was not found!")
+            aggregated_results[key] = []
+
+    return aggregated_results
+
+
 
 def single_process_topics(topics, pooling_results, judge):
     all_judgments = {}
+
+    #process_topic(key, topic, candidates, judge_gpt, safe_mode=False, verbose=False, MODEL_NAME="gpt-4o-mini"):
+
+
+    candidates_dict = {key: [{"doc": {"segment": chunk.page_content}, "docid": chunk.metadata['id']} 
+                                 for chunk in pooling_results[key]]
+                           for key in [tup for tup in topics]}
+    
+
     for key, topic in topics.items():
-        judgments = process_topic(key, topic, pooling_results, judge)
+        current_candidates = candidates_dict[key]
+        _, judgments = process_topic(key, topic, current_candidates, judge)
         all_judgments[key] = judgments
+
     return all_judgments
 
 
-    
+def single_process_topics_safe(topics, pooling_results, judge, intermediate_file='judgments.json', skip_existing=True):
+    # Load already processed judgments to avoid re-processing topics.
+    if os.path.exists(intermediate_file):
+        try:
+            with open(intermediate_file, 'r') as f:
+                all_judgments = json.load(f)
+        except Exception as e:
+            print("Error loading intermediate file, starting with an empty judgments dict:", e)
+            all_judgments = {}
+    else:
+        all_judgments = {}
+
+    # Build a dictionary of candidates for each topic.
+    candidates_dict = {
+        key: [
+            {
+                "doc": {"segment": chunk.page_content},
+                "docid": chunk.metadata['id']
+            }
+            for chunk in pooling_results[key]
+        ]
+        for key in topics
+    }
+
+    # Process each topic.
+    for key, topic in topics.items():
+        # Skip this topic if it was already processed.
+        if skip_existing and key in all_judgments:
+            print(f"Skipping already processed topic: {key}")
+            continue
+
+        current_candidates = candidates_dict[key]
+        try:
+            # process_topic is assumed to return a tuple where the second element is judgments.
+            _, judgments = process_topic(key, topic, current_candidates, judge)
+            all_judgments[key] = judgments
+
+            # Save intermediate results after each successful processing.
+            with open(intermediate_file, 'w') as f:
+                json.dump(all_judgments, f)
+            print(f"Successfully processed and saved topic: {key}")
+
+        except Exception as e:
+            # Catch and log the error, then save intermediate results.
+            print(f"Error processing topic {key}: {e}")
+            with open(intermediate_file, 'w') as f:
+                json.dump(all_judgments, f)
+            # Optionally, you can also log the error details or perform other error handling here.
+            continue
+
+    return all_judgments
+
+
+
 
 def parallel_process_topics(topics, pooling_results, judge_gpt, max_workers=20):
     all_judgments = {}
@@ -137,11 +287,78 @@ def parallel_process_topics(topics, pooling_results, judge_gpt, max_workers=20):
             try:
                 result_key, judgments = future.result()
                 all_judgments[result_key] = judgments
+                
             except Exception as e:
                 print(f"Error processing {key}: {e}")
 
     return all_judgments
 
+def parallel_process_topics_new(topics, pooling_results, judge_gpt, json_dir="results", max_workers=4):
+    """
+    Process topics in parallel using ThreadPoolExecutor and display progress using tqdm.
+    For each topic, check if a JSON file already exists in the given directory.
+    If not, process the topic, save its result, and then later aggregate all results.
+
+    Args:
+        topics (dict): A dictionary mapping keys to topic dictionaries.
+        pooling_results (dict): Pooling results used by process_topic.
+        judge_gpt: An object with a .judge() method to process topics.
+        json_dir (str): Directory in which to store the per-topic JSON files.
+        max_workers (int): Maximum number of worker threads to use.
+
+    Returns:
+        dict: A dictionary mapping topic keys to their judgments.
+    """
+    # Ensure the directory for saving JSON files exists.
+    if not os.path.exists(json_dir):
+        os.makedirs(json_dir)
+
+    def process_and_save(key, topic):
+        """
+        Process a single topic and save its result as a JSON file.
+        Checks if the file already exists and skips processing if so.
+        """
+        file_path = os.path.join(json_dir, f"{key}.json")
+        if os.path.exists(file_path):
+            # Skip processing if the file already exists.
+            return
+
+        # Process the topic.
+        processed_key, judgments = process_topic(key, topic, pooling_results, judge_gpt)
+        # Write the judgments to a JSON file.
+        with open(file_path, "w") as f:
+            json.dump(judgments, f)
+
+    # Submit tasks for topics that haven't been processed yet.
+    futures = {}
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        for key, topic in topics.items():
+            file_path = os.path.join(json_dir, f"{key}.json")
+            if not os.path.exists(file_path):
+                future = executor.submit(process_and_save, key, topic)
+                futures[future] = key
+
+        # Use tqdm to show progress for the submitted futures.
+        for future in tqdm(as_completed(futures), total=len(futures), desc="Processing topics"):
+            key = futures[future]
+            try:
+                future.result()
+            except Exception as exc:
+                print(f"Error processing topic {key}: {exc}")
+
+    # After processing, load all JSON files and aggregate the results.
+    all_judgments = {}
+    for key in topics:
+        file_path = os.path.join(json_dir, f"{key}.json")
+        if os.path.exists(file_path):
+            with open(file_path, "r") as f:
+                judgments = json.load(f)
+            all_judgments[key] = judgments
+        else:
+            # If the file doesn't exist, assume empty judgments.
+            all_judgments[key] = []
+
+    return all_judgments
 
 def gen_full_text_docling(row):
     return f"Title: {row[0]} \n\n {row[1]}"
@@ -340,10 +557,11 @@ def load_pool_documents(pool, vectorstore):
         vs_entries = vectorstore._collection.get(ids = [str(id) for id in id_list])
         lang_docs = []
         for i in range(len(vs_entries['documents'])):
-            lang_docs.append(langchain_core.documents.Document(page_content=vs_entries['documents'][i], 
-                                                       metadata={"id": vs_entries['metadatas'][i]['id'], 
-                                                                 "doi": vs_entries['metadatas'][i]['doi'], 
-                                                                 "chunk_type": vs_entries['metadatas'][i]['chunk_type']}))
+            vs_entry = vectorstore._collection.get(ids = [str(id_list[i])])
+            lang_docs.append(langchain_core.documents.Document(page_content=vs_entry['documents'][0], 
+                                                       metadata={"id": vs_entry['metadatas'][0]['id'], 
+                                                                 "doi": vs_entry['metadatas'][0]['doi'], 
+                                                                 "chunk_type": vs_entry['metadatas'][0]['chunk_type']}))
             
         documents[key] = lang_docs
 
