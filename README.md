@@ -83,7 +83,7 @@ Verification
 
 To confirm that your setup is correct:
 
-1. Open the Jupyter notebook ```/gen_docling_exports.ipynb```/ located in the ```/workspace``` directory.
+1. Open the Jupyter notebook ```/gen_docling_exports.ipynb```/ located in the ```/src``` directory.
 2. Run all cells in the notebook:
 3. Ensure that all cells execute without errors.
 
