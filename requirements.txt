@@ -4,3 +4,13 @@ PyPDF2
 psycopg2-binary
 matplotlib
 python-terrier
+# for rag
+langchain==0.3.14
+langchain-anthropic==0.3.5
+langchain-chroma
+langchain-community==0.3.14
+langchain-core
+langchain-openai==0.3.1
+langchain-tests==0.3.8
+langchain-text-splitters==0.3.5
+langchainhub==0.1.21
