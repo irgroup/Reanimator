@@ -1,9 +1,9 @@
 services:
-  cord19plus:
+  Reanimator:
     build:
       context: .
       dockerfile: Dockerfile
-    image: cord19plus
+    image: Reanimator
     volumes:
       - ./:/workspace
     tty: true
