@@ -31,7 +31,7 @@ We showcase its potential by revitalizing the CORD-19 dataset, demonstrating how
 ```
 
 ## Data Resources
-Data for this project is available via [this Google Drive link](https://drive.google.com/drive/folders/1IqhijGWffGQ5ZjE7JrGTDAwPq_PGFVXD?usp=sharing):
+Data for this project is available via [Google Drive](https://drive.google.com/drive/folders/1IqhijGWffGQ5ZjE7JrGTDAwPq_PGFVXD?usp=sharing).
 
 📂 **data**  
 ├── 📁 **chunks**               # Contains segmented pieces of raw passages and tables  
@@ -71,10 +71,10 @@ If you use REANIMATOR in your research, please cite our paper:
 
 ```
 @inproceedings{reanimator2025,
-  title={REANIMATOR: A Framework for Repurposing Retrieval Test Collections},
-  author={},
+  title={REANIMATOR: Reanimate Retrieval Test Collections with Extracted and Synthetic Resources},
+  author={Björn Engelmann, Fabian Haak, Philipp Schaer, Mani Erfanian Abdoust, Linus Netze, Meik Bittkowski}
   booktitle={},
-  year={}
+  year={2025}
 }
 ```
 
