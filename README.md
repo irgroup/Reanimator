@@ -84,7 +84,7 @@ This project is licensed under the MIT License. See [LICENSE](./LICENSE) for det
 
 # Installation Guide
 
-This guide will walk you through setting up the **cord19plus** project using Docker and Docker Compose with NVIDIA GPU capabilities. If you do not have an NVIDIA GPU, alternative instructions are provided.
+This guide will walk you through setting up the **Reanimator** project using Docker and Docker Compose with NVIDIA GPU capabilities. If you do not have an NVIDIA GPU, alternative instructions are provided.
 
 ---
 
@@ -116,16 +116,16 @@ Ensure that Docker and Docker Compose are installed with NVIDIA GPU support.
 
 ### 2. Clone the Repository
 
-Clone the **cord19plus** repository:
+Clone the **Reanimator** repository:
 
 ```bash
-git clone https://github.com/irgroup/cord19plus.git
+git clone https://github.com/irgroup/Reanimator.git
 ```
 
 ### 3. Navigate to the Project Directory
 
 ```bash
-cd cord19plus
+cd Reanimator
 ```
 ### 4. (Optional) Replace Docker Files for Non-NVIDIA GPU Systems
 If you do not have an NVIDIA GPU, replace the ```Dockerfile``` and ```docker-compose.yml``` with the versions suited for non-GPU systems:
@@ -141,9 +141,9 @@ echo "Dockerfile" >> .gitignore
 echo "docker-compose.yml" >> .gitignore
 ```
 ### 5. Build the Docker Image
-Build the Docker image named ```cord19plus```:
+Build the Docker image named ```Reanimator```:
 ```bash
-docker build -t cord19plus .
+docker build -t Reanimator .
 ```
 ### 6. Start the Docker Container
 Run the container using Docker Compose:
