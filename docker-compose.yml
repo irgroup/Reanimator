@@ -1,5 +1,5 @@
 services:
-  cord19plus:
+  Reanimator:
     build:
       context: .
       dockerfile: Dockerfile
@@ -12,7 +12,7 @@ services:
               capabilities: [gpu]
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
-    image: cord19plus
+    image: Reanimator
     volumes:
       - ./:/workspace
     tty: true
