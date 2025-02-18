@@ -5,7 +5,7 @@
 ## Overview
 REANIMATOR is a versatile framework designed to enhance and repurpose existing retrieval test collections by enriching them with extracted and synthetic resources. It enables the parsing of full texts, machine-readable tables, and contextual metadata from PDF files. Additionally, it leverages state-of-the-art large language models to generate synthetic relevance labels, with an optional human-in-the-loop validation step.
 
-We showcase its potential by revitalizing the CORD-19 dataset, demonstrating how retrieval-augmented generation (RAG) systems can be developed and evaluating the impact of tables on RAG performance. REANIMATOR lowers costs and broadens the utility of legacy resources, making them reusable for new applications.
+We showcase its potential by revitalizing the TREC-COVID test collection, demonstrating how retrieval-augmented generation (RAG) systems can be developed and evaluating the impact of tables on RAG performance. REANIMATOR lowers costs and broadens the utility of legacy resources, making them reusable for new applications.
 
 ## Features
 - **Automated Data Extraction**: Parses full texts and structured tables from PDFs.
