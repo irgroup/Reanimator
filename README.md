@@ -1,4 +1,52 @@
-# cord19plus
+# REANIMATOR: A Framework for Repurposing Retrieval Test Collections
+
+![License](https://img.shields.io/badge/license-MIT-blue.svg)  
+
+## Overview
+REANIMATOR is a versatile framework designed to enhance and repurpose existing retrieval test collections by enriching them with extracted and synthetic resources. It enables the parsing of full texts, machine-readable tables, and contextual metadata from PDF files. Additionally, it leverages state-of-the-art large language models to generate synthetic relevance labels, with an optional human-in-the-loop validation step.
+
+We showcase its potential by revitalizing the CORD-19 dataset, demonstrating how retrieval-augmented generation (RAG) systems can be developed and evaluating the impact of tables on RAG performance. REANIMATOR lowers costs and broadens the utility of legacy resources, making them reusable for new applications.
+
+## Features
+- **Automated Data Extraction**: Parses full texts and structured tables from PDFs.
+- **Synthetic Relevance Labeling**: Utilizes large language models to generate annotations.
+- **Human-in-the-Loop Validation**: Optional verification step for quality assurance.
+- **Parallelized Processing**: Efficient execution to handle large datasets.
+- **RAG System Integration**: Enables research on retrieval-augmented generation.
+
+## Project Structure
+```
+📂 src
+ ├── 📁 data               # Processed and extracted data
+ ├── 📁 database           # Persistent storage 
+ ├── 📁 labeling           # Relevance annotation and validation
+ ├── 📁 parallel_exec      # Parallel processing utilities
+ ├── 📁 pdfs              # Original source PDFs
+ ├── 📁 preprocessing      # Data cleaning and transformation scripts
+ ├── 📄 download_pdfs.ipynb         # Notebook for fetching PDFs
+ ├── 📄 gen_docling_exports.ipynb   # Generates document linking exports
+ ├── 📄 get_urls_for_dois.ipynb     # Extracts URLs for document retrieval
+ ├── 📄 helpers.py                  # Utility functions
+ ├── 📄 test_eval.ipynb              # Evaluation and testing scripts
+```
+
+## Citation
+If you use REANIMATOR in your research, please cite our paper:
+
+```
+@inproceedings{reanimator2025,
+  title={REANIMATOR: A Framework for Repurposing Retrieval Test Collections},
+  author={},
+  booktitle={},
+  year={}
+}
+```
+
+## License
+This project is licensed under the MIT License. See [LICENSE](./LICENSE) for details.
+
+
+# Installation Guide
 
 This guide will walk you through setting up the **cord19plus** project using Docker and Docker Compose with NVIDIA GPU capabilities. If you do not have an NVIDIA GPU, alternative instructions are provided.
 
