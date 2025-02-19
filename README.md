@@ -1,4 +1,4 @@
-# REANIMATOR: A Framework for Repurposing Retrieval Test Collections
+# REANIMATOR: Reanimate Retrieval Test Collections with Extracted and Synthetic Resources
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)  
 
