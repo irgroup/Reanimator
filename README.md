@@ -141,9 +141,9 @@ echo "Dockerfile" >> .gitignore
 echo "docker-compose.yml" >> .gitignore
 ```
 ### 5. Build the Docker Image
-Build the Docker image named ```Reanimator```:
+Build the Docker image named ```reanimator```:
 ```bash
-docker build -t Reanimator .
+docker build -t reanimator .
 ```
 ### 6. Start the Docker Container
 Run the container using Docker Compose:
