@@ -18,21 +18,25 @@ We showcase its potential by revitalizing the TREC-COVID test collection, demons
 ```
 .
 ├── data/                  # Data files (original and processed)
-├── docker-compose.yml     # Docker Compose configuration
+├── docker-compose.yml     # Docker Compose configuration for CUDA
+├── Docker_ARM/            # Docker configuration for ARM-based systems (e.g., Apple Silicon)
+├── Docker_CUDA/           # Docker configuration for NVIDIA GPUs (default)
 ├── Docker_NO_GPU/         # Docker configuration for non-GPU environments
-├── Dockerfile             # Main Dockerfile for GPU environments
-├── llm_models/            # Configuration for LLMs
+├── Dockerfile             # Main Dockerfile, sourced by compose files
 ├── notebooks/             # Jupyter notebooks for exploration and analysis
 ├── pyproject.toml         # Project configuration and dependencies
 ├── README.md              # This README file
 └── src/
     └── reanimator/        # Source code for the reanimator package
-        ├── scripts/       # Command-line scripts
         ├── __init__.py
-        ├── helpers.py
-        ├── labeling/
-        ├── parallel_exec/
-        └── preprocessing/
+        ├── core.py        # Main pipeline orchestration
+        ├── downloaders.py # PDF downloading logic
+        ├── extractors.py  # Content extraction from documents
+        ├── labelers.py    # Synthetic query and label generation
+        ├── models.py      # Data models (Document, Query, etc.)
+        ├── preprocessing/ # Scripts and notebooks for data preparation
+        ├── retrieval.py   # Retrieval and ranking pipelines
+        └── sources.py     # Data source wrappers (e.g., ir_datasets)
 ```
 
 ## Installation
@@ -44,51 +48,62 @@ cd Reanimator
 ```
 
 ### 2. (Optional) Set up Docker Environment
-This project is designed to run inside a Docker container to ensure reproducibility.
+This project is designed to run inside a Docker container to ensure reproducibility. We provide configurations for different environments.
 
-- **For NVIDIA GPU users:**
-  Build and run the container using Docker Compose:
+- **For NVIDIA GPU users (Recommended):**
+  This is the default configuration.
   ```bash
   docker compose up --build
   ```
 
-- **For non-NVIDIA GPU users:**
-  Replace the Docker files with the non-GPU versions before building:
+- **For non-GPU users:**
+  Replace the `docker-compose.yml` with the non-GPU version before building:
   ```bash
-  cp Docker_NO_GPU/Dockerfile .
   cp Docker_NO_GPU/docker-compose.yml .
+  docker compose up --build
+  ```
+
+- **For Apple Silicon / ARM users:**
+  Replace the `docker-compose.yml` with the ARM version before building:
+  ```bash
+  cp Docker_ARM/docker-compose.yml .
   docker compose up --build
   ```
 
 Once the container is running, you can attach your IDE (e.g., VS Code) to the container for development.
 
 ### 3. Install the Package
-Inside the Docker container, or in your own Python environment (>= 3.10) with the prerequisites installed, install the `reanimator` package:
+Inside the Docker container, or in your own Python environment (>= 3.10), install the `reanimator` package in editable mode:
 ```bash
-pip install .
+pip install -e .
 ```
-This will also install all the required dependencies and make the command-line scripts available.
+This will install all required dependencies and make the command-line scripts available.
 
 ## Usage
 
-The core functionality of this project is accessible through command-line scripts.
+The core functionality of this project is accessible through the `reanimate` command-line script. This script runs the entire pipeline, from downloading documents to generating labels and running retrieval experiments.
 
-### 1. Get URLs for Document DOIs
-This script uses the Unpaywall API to find direct PDF URLs for DOIs from the CORD-19 dataset.
+### Run the Full Pipeline
+This single command orchestrates the entire process. You need to provide the name of an `ir_datasets` collection and an email address for the Unpaywall API.
 ```bash
-get_urls_for_dois --email YOUR_EMAIL@example.com
+reanimate <IRDS_NAME> --email YOUR_EMAIL@example.com
 ```
-The URLs will be saved to `data/next_pdf_urls.pkl`.
 
-### 2. Download PDFs
-This script downloads the PDFs from the URLs gathered in the previous step.
+**Example:**
+To run the pipeline on the `cranfield` dataset:
 ```bash
-download_pdfs
+reanimate cranfield --email me@example.com
 ```
-The downloaded PDFs will be saved in the `data/pdfs` directory.
+
+You can also limit the number of documents to process for a quicker test run using the `--max_docs` argument:
+```bash
+reanimate cranfield --email me@example.com --max_docs 100
+```
+
+The processed documents and intermediate files will be saved in the `data/` directory.
 
 ## Data Resources
-The original data resources for this project are available via [Google Drive](https://drive.google.com/drive/folders/1IqhijGWffGQ5ZjE7JrGTDAwPq_PGFVXD?usp=sharing). After running the processing scripts, the `data` directory will be populated with the necessary files.
+The original data resources for this project are available via [Google Drive](https://drive.google.com/drive/folders/1IqhijGWffGQ5ZjE7JrGTDAwPq_PGFVXD?usp=sharing). The `reanimate` script will automatically handle the downloading and processing of necessary data.
 
 ## Citation
 If you use REANIMATOR in your research, please cite our paper:

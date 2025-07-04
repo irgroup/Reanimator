@@ -241,3 +241,14 @@ class Reanimator:
         print("\nPipeline finished.")
         # The document objects in the list have been enriched in-place.
         return documents, synthetic_judgements, rankings
+
+def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Reanimate a collection.")
+    parser.add_argument("irds_name", help="The ir-datasets name for the collection.")
+    parser.add_argument("--email", help="Your email, for politeness with the Unpaywall API.", required=True)
+    parser.add_argument("--max_docs", type=int, help="Maximum number of documents to process.")
+    args = parser.parse_args()
+
+    reanimator = Reanimator(irds_name=args.irds_name, email=args.email)
+    reanimator.run(max_docs=args.max_docs)
