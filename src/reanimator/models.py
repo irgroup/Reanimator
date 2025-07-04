@@ -1,0 +1,96 @@
+from dataclasses import dataclass, field, asdict
+from typing import List, Optional, Dict
+import pandas as pd
+from io import StringIO
+
+@dataclass
+class Table:
+    """Represents a single table extracted from a document."""
+    id: str
+    content: pd.DataFrame
+    caption: Optional[str] = None
+    metadata: Dict = field(default_factory=dict)
+
+    def to_dict(self):
+        """Converts the Table object to a JSON-serializable dictionary."""
+        d = asdict(self)
+        d['content'] = self.content.to_json(orient='split')
+        return d
+
+    @classmethod
+    def from_dict(cls, d: Dict) -> 'Table':
+        """Creates a Table object from a dictionary."""
+        d['content'] = pd.read_json(StringIO(d['content']), orient='split')
+        return cls(**d)
+
+@dataclass
+class Document:
+    """Represents a single document in the collection."""
+    doc_id: str
+    doi: Optional[str] = None
+    url: Optional[str] = None
+    pdf_path: Optional[str] = None
+    text: Optional[str] = None
+    tables: List[Table] = field(default_factory=list)
+    chunks: List["Chunk"] = field(default_factory=list)
+    metadata: Dict = field(default_factory=dict)
+
+    def to_dict(self):
+        """Converts the Document object to a JSON-serializable dictionary."""
+        d = asdict(self)
+        d['tables'] = [t.to_dict() for t in self.tables]
+        d['chunks'] = [asdict(c) for c in self.chunks]
+        return d
+
+    @classmethod
+    def from_dict(cls, d: Dict) -> 'Document':
+        """Creates a Document object from a dictionary."""
+        table_data = d.pop('tables', [])
+        chunk_data = d.pop('chunks', [])
+        # Recreate the document with the remaining simple fields
+        doc = cls(**d)
+        # Reconstruct and assign the complex nested objects
+        doc.tables = [Table.from_dict(t) for t in table_data]
+        doc.chunks = [Chunk(**c) for c in chunk_data]
+        return doc
+
+@dataclass
+class Topic:
+    """Represents a single topic (query)."""
+    query_id: str
+    query_text: str
+    context: Optional[Dict] = field(default_factory=dict)
+    rewritten_texts: List[str] = field(default_factory=list)
+    metadata: Dict = field(default_factory=dict)
+
+@dataclass
+class Chunk:
+    """Represents a single chunk of content from a document (e.g., text, table)."""
+    chunk_id: str
+    doc_id: str
+    text: str
+    modality: str  # e.g., 'text', 'table'
+    metadata: Dict = field(default_factory=dict)
+
+@dataclass
+class Judgement:
+    """Represents a relevance judgement for a query-document pair."""
+    query_id: str
+    doc_id: str
+    score: int
+    source: str # e.g., 'human', 'synthetic-gpt4'
+
+@dataclass
+class SearchResult:
+    """Represents a single search result for a query."""
+    doc_id: str
+    score: float
+    rank: int
+    chunk_id: Optional[str] = None
+    metadata: Dict = field(default_factory=dict)
+
+@dataclass
+class Ranking:
+    """Represents a ranked list of search results for a query."""
+    query_id: str
+    results: List[SearchResult] = field(default_factory=list)

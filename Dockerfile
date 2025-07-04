@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.4.0-base-ubuntu22.04
+FROM ubuntu:22.04
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
@@ -21,7 +21,12 @@ RUN python3 -m pip install --upgrade pip
 
 # Set the working directory
 WORKDIR /workspace
-ADD requirements.txt /workspace
+
+# Copy requirements
+COPY requirements.txt /workspace
 
 # Install Python dependencies
 RUN pip install -r requirements.txt
+
+# Default command (optional)
+CMD [ "bash" ]

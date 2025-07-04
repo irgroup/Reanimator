@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "reanimator"
+version = "0.1.0"
+description = "A pipeline to 'reanimate' old IR collections by fetching full-text and generating new labels."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Your Name", email = "you@example.com" },
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "python-terrier",
+    "ir_datasets",
+    "requests",
+    "tqdm",
+    "pandas",
+    "docling",
+    "easyocr",
+    "openai"
+]
+
+[project.urls]
+"Homepage" = "https://github.com/your-repo/reanimator"
+"Bug Tracker" = "https://github.com/your-repo/reanimator/issues"
+
+[project.scripts]
+reanimate = "reanimator.core:main"
