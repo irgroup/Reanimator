@@ -100,7 +100,7 @@ class QueryRewriter:
 class Indexer:
     """Component for creating search indexes."""
 
-    def __init__(self, index_type: str = "both", vector_store_path: str = "vectorstore", bm25_path: str = "bm25_retriever.pkl", max_docs: Optional[int] = 200):
+    def __init__(self, vector_store_path: str, bm25_path: str, index_type: str = "both", max_docs: Optional[int] = 200):
         if index_type not in ["vectorstore", "bm25", "both"]:
             raise ValueError("index_type must be one of 'vectorstore', 'bm25', or 'both'")
         self.index_type = index_type

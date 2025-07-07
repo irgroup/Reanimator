@@ -11,17 +11,20 @@ class PDFDownloader:
     """
     Handles fetching PDF URLs and downloading the files.
     """
-    def __init__(self, email: str, url_cache_path: str = "data/pdf_urls.pkl"):
+    def __init__(self, email: str, url_cache_path: str, output_dir: str):
         """
         Initializes the downloader.
 
         Args:
             email (str): Email address for the Unpaywall API.
             url_cache_path (str): Path to store the cached DOI-to-URL mapping.
+            output_dir (str): Directory to save downloaded PDFs.
         """
         self.email = email
         self.url_cache_path = url_cache_path
-        os.makedirs(os.path.dirname(url_cache_path), exist_ok=True)
+        self.output_dir = output_dir
+        os.makedirs(os.path.dirname(self.url_cache_path), exist_ok=True)
+        os.makedirs(self.output_dir, exist_ok=True)
         self.urls = self._load_urls()
 
     def _load_urls(self) -> Dict[str, str]:
@@ -85,7 +88,7 @@ class PDFDownloader:
         safe_doi = doi.replace("/", "$")
         return os.path.join(output_dir, f"{safe_doi}.pdf")
 
-    def _download_single_pdf(self, doc: Document, output_dir: str) -> Optional[str]:
+    def _download_single_pdf(self, doc: Document) -> Optional[str]:
         """Downloads a single PDF if a URL is available."""
         if doc.doi:
             doc.url = self.urls.get(doc.doi)
@@ -93,7 +96,7 @@ class PDFDownloader:
             return None
         
         if doc.doi:
-            pdf_path = self._doi_to_path(doc.doi, output_dir)
+            pdf_path = self._doi_to_path(doc.doi, self.output_dir)
             doc.pdf_path = pdf_path
         else:
             # Should not happen if we have a URL, but good to be safe
@@ -113,15 +116,14 @@ class PDFDownloader:
             doc.pdf_path = None # Unset path on failure
             return None
 
-    def download_pdfs(self, documents: List[Document], output_dir: str = "/workspace/data/pdfs", max_workers: int = 15):
+    def download_pdfs(self, documents: List[Document], max_workers: int = 15):
         """
         Downloads PDFs for a list of documents in parallel.
         """
-        os.makedirs(output_dir, exist_ok=True)
         docs_to_download = [doc for doc in documents if doc.doi]
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_doc = {executor.submit(self._download_single_pdf, doc, output_dir): doc for doc in docs_to_download}
+            future_to_doc = {executor.submit(self._download_single_pdf, doc): doc for doc in docs_to_download}
 
             for future in tqdm(as_completed(future_to_doc), total=len(docs_to_download), desc="Downloading PDFs"):
                 future.result() # The doc object is updated by reference

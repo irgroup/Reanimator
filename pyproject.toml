@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "reanimator"
-version = "0.1.1"
+version = "0.1.2"
 description = "A pipeline to 'reanimate' old IR collections by fetching full-text and generating new labels."
 readme = "README.md"
 requires-python = ">=3.8"
@@ -30,7 +30,8 @@ dependencies = [
     "langchain_core",
     "langchain_community",
     "nltk",
-    "langchain_openai"
+    "langchain_openai",
+    "ƒrank_bm25"
 
 ]
 
@@ -40,3 +41,13 @@ dependencies = [
 
 [project.scripts]
 reanimate = "reanimator.core:main"
+
+[tool.setuptools]
+packages = ["reanimator"]
+package_dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+reanimator = ["*.json", "*.txt"]
+
+[tool.ruff]
+line-length = 88

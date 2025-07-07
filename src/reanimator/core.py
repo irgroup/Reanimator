@@ -2,6 +2,7 @@ from typing import List, Optional
 import pickle
 import os
 import json
+import pkgutil
 from .sources import CollectionSource
 from .downloaders import PDFDownloader
 from .extractors import BaseExtractor, DoclingExtractor
@@ -10,6 +11,19 @@ from .models import Document, Judgement
 from .retrieval import RetrievalPipeline, Chunker
 from tqdm import tqdm
 from docling.datamodel.accelerator_options import AcceleratorOptions
+
+def _deep_merge(source, destination):
+    """
+    Recursively merges source dict into destination dict.
+    """
+    for key, value in source.items():
+        if isinstance(value, dict):
+            # Get node or create one
+            node = destination.setdefault(key, {})
+            _deep_merge(value, node)
+        else:
+            destination[key] = value
+    return destination
 
 class Reanimator:
     """
@@ -20,6 +34,7 @@ class Reanimator:
     labeler: "BaseLabeler"
     chunker: "Chunker"
     retrieval_pipeline: "RetrievalPipeline"
+    downloader_params: dict
 
     def __init__(self, irds_name: str, email: str, config: Optional[dict] = None):
         """
@@ -30,20 +45,49 @@ class Reanimator:
             email (str): Your email, for politeness with the Unpaywall API.
             config (dict, optional): Configuration for custom components. Defaults to None.
         """
-        self.config = config if config else {}
-        self.source = CollectionSource(irds_name=irds_name)
+        # Load default config from package
+        default_config_bytes = pkgutil.get_data('reanimator', 'default_config.json')
+        if not default_config_bytes:
+            raise FileNotFoundError("Could not find default_config.json in the package.")
         
-        # Allow for dependency injection or configuration of components
+        self.config = json.loads(default_config_bytes)
+
+        # Merge user-provided config over the default
+        if config:
+            self.config = _deep_merge(config, self.config)
+
+        self.irds_name = irds_name
+        self.email = email
+        self.source = CollectionSource(irds_name=self.irds_name)
+
+        self._initialize_components()
+
+    def _initialize_components(self):
+        """Initializes or re-initializes all components based on the current config."""
+        paths_conf = self.config.get('paths')
+        if not paths_conf:
+            raise ValueError("Configuration error: 'paths' section is missing.")
         
         # Downloader
-        downloader_conf = self.config.get('downloader')
+        downloader_conf = self.config.get('downloader', {})
         if isinstance(downloader_conf, PDFDownloader):
             self.downloader = downloader_conf
         else:
-            params = downloader_conf or {}
+            params = downloader_conf.copy()
             if 'email' not in params:
-                params['email'] = email
-            self.downloader = PDFDownloader(**params)
+                params['email'] = self.email
+            
+            try:
+                init_params = {
+                    'email': params.pop('email'),
+                    'url_cache_path': paths_conf['url_cache'],
+                    'output_dir': paths_conf['pdf_downloads']
+                }
+            except KeyError as e:
+                raise ValueError(f"Configuration error: Missing required downloader parameter: {e}")
+            
+            self.downloader_params = params # Store remaining params like max_workers
+            self.downloader = PDFDownloader(**init_params)
 
         # Extractor
         extractor_conf = self.config.get('extractor')
@@ -66,8 +110,48 @@ class Reanimator:
         self.chunker = Chunker(**chunker_conf)
 
         # Retrieval Pipeline
-        retrieval_conf = self.config.get('retrieval')
+        retrieval_conf = self.config.get('retrieval', {}).copy()
+        
+        try:
+            indexer_conf = retrieval_conf.get('indexer', {}).copy()
+            indexer_conf['vector_store_path'] = paths_conf['vector_store']
+            indexer_conf['bm25_path'] = paths_conf['bm25_index']
+            retrieval_conf['indexer'] = indexer_conf
+        except KeyError as e:
+            raise ValueError(f"Configuration error: Missing path in 'paths' section: {e}")
+        
         self.retrieval_pipeline = RetrievalPipeline(retrieval_conf)
+
+    def set_config(self, new_config: dict):
+        """
+        Updates the Reanimator's configuration by merging the new config
+        and then re-initializing all components.
+
+        Args:
+            new_config (dict): A dictionary with configuration updates.
+        """
+        self.config = _deep_merge(new_config, self.config)
+        self._initialize_components()
+
+    def set_parameter(self, key: str, value):
+        """
+        Updates a specific configuration parameter using a dot-separated key.
+        Re-initializes all components after the update.
+
+        Args:
+            key (str): A dot-separated string indicating the parameter to update
+                       (e.g., "labeler.model").
+            value: The new value for the parameter.
+        """
+        keys = key.split('.')
+        d = self.config
+        for k in keys[:-1]:
+            if k not in d or not isinstance(d.get(k), dict):
+                raise KeyError(f"Invalid key '{key}'. Segment '{k}' is not a valid path in the configuration.")
+            d = d[k]
+
+        d[keys[-1]] = value
+        self._initialize_components()
 
     def save_documents(self, documents: List[Document], dir_path: str):
         """Saves each Document object to a separate .json file in a directory."""
@@ -151,16 +235,25 @@ class Reanimator:
             documents (List[Document]): A list of document objects.
         """
         print("\nStep 2: Fetching URLs and downloading PDFs...")
-        self.downloader.fetch_urls(documents)
-        self.downloader.download_pdfs(documents)
+        
+        # Get fetch_urls and download_pdfs params from the config
+        fetch_params = {k: v for k, v in self.downloader_params.items() if k in self.downloader.fetch_urls.__code__.co_varnames}
+        download_params = {k: v for k, v in self.downloader_params.items() if k in self.downloader.download_pdfs.__code__.co_varnames}
+
+        self.downloader.fetch_urls(documents, **fetch_params)
+        self.downloader.download_pdfs(documents, **download_params)
 
     def generate_pdf_list(self,
-                          documents: List[Document],
-                          output_path: str = "/workspace/data/pdf_list.txt") -> None:
+                          documents: List[Document]) -> None:
         """
         Generates a list of PDF paths for the given documents.
         Only includes paths for PDFs that actually exist.
         """
+        try:
+            output_path = self.config['paths']['pdf_list']
+        except KeyError:
+            raise ValueError("Configuration error: 'paths.pdf_list' is not defined.")
+
         print(f"Generating PDF list at {output_path}...")
         pdf_paths = [doc.pdf_path for doc in documents if doc.pdf_path and os.path.exists(doc.pdf_path)]
         
@@ -211,11 +304,23 @@ class Reanimator:
 
 def main():
     import argparse
+    import json
     parser = argparse.ArgumentParser(description="Reanimate a collection.")
     parser.add_argument("irds_name", help="The ir-datasets name for the collection.")
-    parser.add_argument("--email", help="Your email, for politeness with the Unpaywall API.", required=True)
+    parser.add_argument("--email", help="Your email, for politeness with the Unpaywall API.", required=False)
+    parser.add_argument("--config", help="Path to a JSON configuration file.")
     parser.add_argument("--max_docs", type=int, help="Maximum number of documents to process.")
     args = parser.parse_args()
 
-    reanimator = Reanimator(irds_name=args.irds_name, email=args.email)
+    config = {}
+    if args.config:
+        with open(args.config, 'r') as f:
+            config = json.load(f)
+
+    # Email can be provided via CLI arg or config file. CLI takes precedence.
+    email = args.email or config.get('email')
+    if not email:
+        raise ValueError("Email must be provided either via the --email argument or in the config file.")
+
+    reanimator = Reanimator(irds_name=args.irds_name, email=email, config=config)
     reanimator.run(max_docs=args.max_docs)

@@ -8,6 +8,8 @@ import re
 from tqdm.asyncio import tqdm
 import asyncio
 from sklearn.metrics import cohen_kappa_score
+import os
+import pkgutil
 
 
 class TopicChunkPair(TypedDict):
@@ -84,7 +86,16 @@ class _BaseOpenAILabeler(BaseLabeler):
         self.model = model
         self.client = client
         if prompt_path:
-            self.prompt_template = open(prompt_path, "r").read()
+            if os.path.exists(prompt_path):
+                with open(prompt_path, "r") as f:
+                    self.prompt_template = f.read()
+            else:
+                # Assume it's a package resource
+                prompt_bytes = pkgutil.get_data('reanimator', prompt_path)
+                if prompt_bytes:
+                    self.prompt_template = prompt_bytes.decode('utf-8')
+                else:
+                    raise FileNotFoundError(f"Prompt file not found at path or in package: {prompt_path}")
         else:
             self.prompt_template = None
         self.temperature = 0.0

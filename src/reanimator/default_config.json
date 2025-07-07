@@ -1,0 +1,36 @@
+{
+  "paths": {
+    "url_cache": "data/pdf_urls.pkl",
+    "pdf_downloads": "data/pdfs",
+    "pdf_list": "data/pdf_list.txt",
+    "vector_store": "data/vectorstore",
+    "bm25_index": "data/bm25_retriever.pkl"
+  },
+  "downloader": {
+    "max_workers": 10
+  },
+  "extractor": {},
+  "labeler": {
+    "model": "gpt-4.1-mini-2025-04-14",
+    "concurrency": 5,
+    "thinking": false,
+    "prompt_path": "default_prompt.txt"
+  },
+  "chunker": {
+    "text_chunk_config": {
+      "chunk_size": 512,
+      "chunk_overlap": 100
+    },
+    "table_chunk_config": {
+      "chunk_size": 8192,
+      "chunk_overlap": 1000
+    }
+  },
+  "retrieval": {
+    "indexer": {
+      "index_type": "both",
+      "max_docs": 200
+    },
+    "query_rewriter": {}
+  }
+} 
