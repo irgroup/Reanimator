@@ -26,7 +26,12 @@ dependencies = [
     "docling",
     "easyocr",
     "openai",
-    "scikit-learn"
+    "scikit-learn",
+    "langchain_core",
+    "langchain_community",
+    "nltk",
+    "langchain_openai"
+
 ]
 
 [project.urls]

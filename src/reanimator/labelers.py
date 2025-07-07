@@ -80,16 +80,21 @@ class _BaseOpenAILabeler(BaseLabeler):
     """
     Base class for labelers using an OpenAI-compatible API. Not intended for direct use.
     """
-    def __init__(self, model: str, client: AsyncOpenAI, thinking: bool = False, concurrency: int = 10):
+    def __init__(self, model: str, client: AsyncOpenAI, thinking: bool = False, concurrency: int = 10, prompt_path: Optional[str] = None):
         self.model = model
         self.client = client
-        self.prompt_template = open("/workspace/data/prompts/default_prompt.txt", "r").read()
+        if prompt_path:
+            self.prompt_template = open(prompt_path, "r").read()
+        else:
+            self.prompt_template = None
         self.temperature = 0.0
         self.thinking = thinking
         self.concurrency = concurrency
 
     def _construct_prompt(self, query: Topic, chunk: Chunk) -> str:
         """Constructs the prompt for the LLM."""
+        if not self.prompt_template:
+            raise ValueError("Prompt template not set. Please provide a `prompt_path` during initialization.")
         return self.prompt_template.replace("{query}", query.query_text).replace("{passage}", chunk.text)
 
     async def generate_response(self, user_input: str) -> str:
@@ -146,7 +151,7 @@ class OpenAILabeler(_BaseOpenAILabeler):
     """
     A labeler that uses an OpenAI model (like GPT-4) to generate judgements.
     """
-    def __init__(self, model: str = "gpt-4.1-mini-2025-04-14", api_key: Optional[str] = None, concurrency: int = 10, thinking: bool = False):
+    def __init__(self, model: str = "gpt-4.1-mini-2025-04-14", api_key: Optional[str] = None, concurrency: int = 10, thinking: bool = False, prompt_path: Optional[str] = None):
         """
         Initializes the OpenAI client.
         
@@ -156,9 +161,10 @@ class OpenAILabeler(_BaseOpenAILabeler):
                            OPENAI_API_KEY environment variable.
             concurrency (int): The maximum number of concurrent requests to make.
             thinking (bool): Whether to enable 'thinking' mode for the model.
+            prompt_path (str, optional): Path to a custom prompt template file. Defaults to None.
         """
         client = AsyncOpenAI(api_key=api_key)
-        super().__init__(model=model, client=client, concurrency=concurrency, thinking=thinking)
+        super().__init__(model=model, client=client, concurrency=concurrency, thinking=thinking, prompt_path=prompt_path)
         print(f"INFO: OpenAILabeler initialized with model: {self.model}")
 
 
@@ -166,7 +172,7 @@ class LocalModelLabeler(_BaseOpenAILabeler):
     """
     A labeler that uses a local model served via an OpenAI-compatible API.
     """
-    def __init__(self, model: str, base_url: str, concurrency: int = 10, thinking: bool = False):
+    def __init__(self, model: str, base_url: str, concurrency: int = 10, thinking: bool = False, prompt_path: Optional[str] = None):
         """
         Initializes the client to connect to a local model.
         
@@ -176,10 +182,11 @@ class LocalModelLabeler(_BaseOpenAILabeler):
                            (e.g., "http://localhost:1234/v1").
             concurrency (int): The maximum number of concurrent requests to make.
             thinking (bool): Whether to enable 'thinking' mode for the model.
+            prompt_path (str, optional): Path to a custom prompt template file. Defaults to None.
         """
         # The api_key can be a dummy value for local models.
         client = AsyncOpenAI(base_url=base_url, api_key="not-needed")
-        super().__init__(model=model, client=client, concurrency=concurrency, thinking=thinking)
+        super().__init__(model=model, client=client, concurrency=concurrency, thinking=thinking, prompt_path=prompt_path)
         print(f"INFO: LocalModelLabeler initialized with model: {self.model} at {base_url}")
 
 
