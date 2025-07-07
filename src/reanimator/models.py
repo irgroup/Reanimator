@@ -2,6 +2,7 @@ from dataclasses import dataclass, field, asdict
 from typing import List, Optional, Dict
 import pandas as pd
 from io import StringIO
+import json
 
 @dataclass
 class Table:
@@ -94,3 +95,28 @@ class Ranking:
     """Represents a ranked list of search results for a query."""
     query_id: str
     results: List[SearchResult] = field(default_factory=list)
+
+def save_judgements(judgements: List[Judgement], file_path: str):
+    """
+    Saves a list of Judgement objects to a JSON file.
+
+    Args:
+        judgements (List[Judgement]): The list of judgements to save.
+        file_path (str): The path to the output JSON file.
+    """
+    with open(file_path, 'w') as f:
+        json.dump([asdict(j) for j in judgements], f, indent=4)
+
+def load_judgements(file_path: str) -> List[Judgement]:
+    """
+    Loads a list of Judgement objects from a JSON file.
+
+    Args:
+        file_path (str): The path to the input JSON file.
+
+    Returns:
+        List[Judgement]: The loaded list of judgements.
+    """
+    with open(file_path, 'r') as f:
+        data = json.load(f)
+    return [Judgement(**d) for d in data]

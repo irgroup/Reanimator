@@ -25,12 +25,13 @@ dependencies = [
     "pandas",
     "docling",
     "easyocr",
-    "openai"
+    "openai",
+    "scikit-learn"
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/your-repo/reanimator"
-"Bug Tracker" = "https://github.com/your-repo/reanimator/issues"
+"Homepage" = "https://github.com/irgroup/Reanimator"
+"Bug Tracker" = "https://github.com/irgroup/Reanimator/issues"
 
 [project.scripts]
 reanimate = "reanimator.core:main"

@@ -41,43 +41,38 @@ We showcase its potential by revitalizing the TREC-COVID test collection, demons
 
 ## Installation
 
-### 1. Clone the Repository
+You can install the `reanimator` package using pip. It's recommended to do this within a virtual environment.
+
+### Local Development (with venv)
+
+1.  **Create a virtual environment:**
+    ```bash
+    python -m venv venv
+    ```
+
+2.  **Activate the virtual environment:**
+    *   On Windows:
+        ```bash
+        .\\venv\\Scripts\\activate
+        ```
+    *   On macOS and Linux:
+        ```bash
+        source venv/bin/activate
+        ```
+
+3.  **Install the package in editable mode:**
+    ```bash
+    pip install -e .
+    ```
+    This allows you to make changes to the source code and have them immediately reflected in your environment.
+
+### From GitHub
+
+You can also install the package directly from the GitHub repository:
+
 ```bash
-git clone https://github.com/irgroup/Reanimator.git
-cd Reanimator
+pip install git+https://github.com/irgroup/Reanimator.git
 ```
-
-### 2. (Optional) Set up Docker Environment
-This project is designed to run inside a Docker container to ensure reproducibility. We provide configurations for different environments.
-
-- **For NVIDIA GPU users (Recommended):**
-  This is the default configuration.
-  ```bash
-  docker compose up --build
-  ```
-
-- **For non-GPU users:**
-  Replace the `docker-compose.yml` with the non-GPU version before building:
-  ```bash
-  cp Docker_NO_GPU/docker-compose.yml .
-  docker compose up --build
-  ```
-
-- **For Apple Silicon / ARM users:**
-  Replace the `docker-compose.yml` with the ARM version before building:
-  ```bash
-  cp Docker_ARM/docker-compose.yml .
-  docker compose up --build
-  ```
-
-Once the container is running, you can attach your IDE (e.g., VS Code) to the container for development.
-
-### 3. Install the Package
-Inside the Docker container, or in your own Python environment (>= 3.10), install the `reanimator` package in editable mode:
-```bash
-pip install -e .
-```
-This will install all required dependencies and make the command-line scripts available.
 
 ## Usage
 

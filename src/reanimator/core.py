@@ -118,19 +118,26 @@ class Reanimator:
         print(f"Successfully loaded {len(documents)} documents.")
         return documents
 
-    def load_documents(self, max_docs: Optional[int] = None) -> List[Document]:
+    def load_documents(self, max_docs: Optional[int] = None, doc_ids: Optional[List[str]] = None) -> List[Document]:
         """
         Loads documents from the source.
         
         Args:
             max_docs (int, optional): The maximum number of documents to process.
                                       Useful for testing. Defaults to all.
+            doc_ids (List[str], optional): A list of document IDs to load.
+                                           If provided, only these documents will be loaded.
         
         Returns:
             List[Document]: A list of document objects.
         """
         print("Step 1: Loading documents from source...")
         documents = list(self.source.get_documents())
+
+        if doc_ids:
+            doc_id_set = set(doc_ids)
+            documents = [doc for doc in documents if doc.doc_id in doc_id_set]
+
         if max_docs:
             documents = documents[:max_docs]
         return documents
@@ -177,34 +184,6 @@ class Reanimator:
         for doc in tqdm(documents, desc="Extracting Content"):
             self.extractor.extract(doc, accelerator_options)
 
-    def generate_labels(self, documents: List[Document], sample_size: int = 5) -> List[Judgement]:
-        """
-        Generates synthetic labels for a sample of documents.
-        
-        Args:
-            documents (List[Document]): A list of document objects.
-            sample_size (int, optional): The number of documents to label. Defaults to 5.
-        
-        Returns:
-            List[Judgement]: A list of synthetic relevance judgements.
-        """
-        print("\nStep 4: Generating synthetic labels...")
-        topics = self.source.get_topics()
-        
-        synthetic_judgements = []
-        # For demonstration, we'll just label the first few documents for the first query.
-        if topics and documents:
-            sample_topic = topics[0]
-            docs_to_label = [doc for doc in documents if doc.text][:sample_size]
-            
-            for doc in tqdm(docs_to_label, desc=f"Labeling for Q:{sample_topic.query_id}"):
-                judgement = self.labeler.label(sample_topic, doc)
-                synthetic_judgements.append(judgement)
-
-            print(f"Generated {len(synthetic_judgements)} judgements.")
-
-        return synthetic_judgements
-
     def run(self, max_docs: Optional[int] = None):
         """
         Executes the full reanimation pipeline.
@@ -227,20 +206,8 @@ class Reanimator:
         chunks = self.chunker.chunk(documents)
         print(f"Created {len(chunks)} chunks.")
 
-        # 5. Generate synthetic labels
-        synthetic_judgements = self.generate_labels(documents)
+        return documents, chunks
 
-        # 6. Run Retrieval Pipeline (Indexing, Retrieval)
-        print("\nStep 6: Running retrieval pipeline...")
-        topics = self.source.get_topics()
-        if topics:
-            rankings = self.retrieval_pipeline.run(documents, topics, chunks)
-        else:
-            rankings = {}
-
-        print("\nPipeline finished.")
-        # The document objects in the list have been enriched in-place.
-        return documents, synthetic_judgements, rankings
 
 def main():
     import argparse

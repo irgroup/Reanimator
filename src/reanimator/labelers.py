@@ -1,10 +1,18 @@
 from abc import ABC, abstractmethod
-from typing import Optional
-from .models import Chunk, Topic, Document, Judgement
+from typing import Optional, List, Dict, TypedDict
+from .models import Chunk, Topic, Document, Judgement, load_judgements
 # import openai # This would be a real dependency
 from openai import OpenAI
 from openai import AsyncOpenAI
 import re
+from tqdm.asyncio import tqdm
+import asyncio
+from sklearn.metrics import cohen_kappa_score
+
+
+class TopicChunkPair(TypedDict):
+    topic: Topic
+    chunk: Chunk
 
 
 def parse_fewshot_response(response: str):
@@ -54,65 +62,50 @@ def parse_fewshot_response(response: str):
 class BaseLabeler(ABC):
     """Abstract base class for all labelers."""
     @abstractmethod
-    def label(self, query: Topic, document: Document) -> Judgement:
+    async def label(self, topic: Topic, chunk: Chunk) -> Judgement:
         """
-        Generates a relevance judgement for a given query and document.
+        Generates a relevance judgement for a given query and document chunk.
 
         Args:
-            query (Topic): The query object.
-            document (Document): The document object, with text and/or tables.
+            topic (Topic): The topic object.
+            chunk (Chunk): The chunk object from a document.
 
         Returns:
             Judgement: The synthetic relevance judgement.
         """
         pass
 
-class OpenAILabeler(BaseLabeler):
-    """
-    A labeler that uses an OpenAI model (like GPT-4) to generate judgements.
-    """
-    def __init__(self, model: str = "gpt-4.1-mini-2025-04-14", api_key: Optional[str] = None):
-        """
-        Initializes the OpenAI client.
-        
-        Args:
-            model (str): The name of the OpenAI model to use.
-            api_key (str): Your OpenAI API key. If None, it should be set as an
-                           environment variable (OPENAI_API_KEY).
-        """
-        self.model = model
-        self.client = AsyncOpenAI()
-        # if api_key:
-        #     openai.api_key = api_key
-        #
-        # if not openai.api_key:
-        #     raise ValueError("OpenAI API key not provided or set in environment.")
-        
-        #Prompt taken from https://github.com/castorini/umbrela/blob/main/src/umbrela/prompts/qrel_zeroshot_bing.txt
-        self.prompt_template = open("/workspace/data/prompts/default_prompt.txt", "r").read()
 
-        print(f"INFO: OpenAILabeler initialized with model: {self.model}")
+class _BaseOpenAILabeler(BaseLabeler):
+    """
+    Base class for labelers using an OpenAI-compatible API. Not intended for direct use.
+    """
+    def __init__(self, model: str, client: AsyncOpenAI, thinking: bool = False, concurrency: int = 10):
+        self.model = model
+        self.client = client
+        self.prompt_template = open("/workspace/data/prompts/default_prompt.txt", "r").read()
+        self.temperature = 0.0
+        self.thinking = thinking
+        self.concurrency = concurrency
 
     def _construct_prompt(self, query: Topic, chunk: Chunk) -> str:
         """Constructs the prompt for the LLM."""
-        # This is a placeholder. The actual prompt engineering is a critical step
-        # and would be based on the logic in the auto_judging notebooks.
-        prompt = self.prompt_template.replace("{query}", query.query_text).replace("{passage}", chunk.text)
-        self.temperature = 0.0
-        return prompt
+        return self.prompt_template.replace("{query}", query.query_text).replace("{passage}", chunk.text)
 
-    async def generate_response(self, user_input: str):
-        
+    async def generate_response(self, user_input: str) -> str:
+        """Generates a response from the OpenAI-compatible API."""
+        if self.thinking:
+            system_message = "You are a concise assistant."
+        else:
+            system_message = "You are a concise assistant. /no_think"
         request_params = {
             "model": self.model,
             "messages": [
-                {"role": "system", "content": "You are a concise assistant"},
+                {"role": "system", "content": system_message},
                 {"role": "user", "content": user_input},
-            ] 
+            ],
+            "temperature": self.temperature
         }
-
-        request_params["temperature"] = self.temperature
-
         chat_response = await self.client.chat.completions.create(**request_params)
         return chat_response.choices[0].message.content
 
@@ -124,6 +117,110 @@ class OpenAILabeler(BaseLabeler):
             return Judgement(topic.query_id, chunk.doc_id, score=0, source=f"synthetic-{self.model}-skipped")
 
         prompt = self._construct_prompt(topic, chunk)
-        response = await self.generate_response(prompt)
-        response = parse_fewshot_response(response)
-        return Judgement(topic.query_id, chunk.doc_id, score=response, source=f"synthetic-{self.model}")
+        response_text = await self.generate_response(prompt)
+        score = parse_fewshot_response(response_text)
+        return Judgement(topic.query_id, chunk.doc_id, score=score, source=f"synthetic-{self.model}")
+
+    async def label_all(self, pairs: List[TopicChunkPair]) -> List[Judgement]:
+        """
+        Generates relevance judgements for a list of (topic, chunk) pairs asynchronously.
+
+        Args:
+            pairs (List[TopicChunkPair]): A list of topic-chunk pairs.
+
+        Returns:
+            List[Judgement]: A list of generated relevance judgements.
+        """
+        semaphore = asyncio.Semaphore(self.concurrency)
+
+        async def sem_label(pair: TopicChunkPair) -> Judgement:
+            async with semaphore:
+                return await self.label(pair["topic"], pair["chunk"])
+
+        tasks = [sem_label(pair) for pair in pairs]
+        judgements = await tqdm.gather(*tasks, desc="Generating Judgements")
+        return judgements
+
+
+class OpenAILabeler(_BaseOpenAILabeler):
+    """
+    A labeler that uses an OpenAI model (like GPT-4) to generate judgements.
+    """
+    def __init__(self, model: str = "gpt-4.1-mini-2025-04-14", api_key: Optional[str] = None, concurrency: int = 10, thinking: bool = False):
+        """
+        Initializes the OpenAI client.
+        
+        Args:
+            model (str): The name of the OpenAI model to use.
+            api_key (str): Your OpenAI API key. If None, it will be read from the
+                           OPENAI_API_KEY environment variable.
+            concurrency (int): The maximum number of concurrent requests to make.
+            thinking (bool): Whether to enable 'thinking' mode for the model.
+        """
+        client = AsyncOpenAI(api_key=api_key)
+        super().__init__(model=model, client=client, concurrency=concurrency, thinking=thinking)
+        print(f"INFO: OpenAILabeler initialized with model: {self.model}")
+
+
+class LocalModelLabeler(_BaseOpenAILabeler):
+    """
+    A labeler that uses a local model served via an OpenAI-compatible API.
+    """
+    def __init__(self, model: str, base_url: str, concurrency: int = 10, thinking: bool = False):
+        """
+        Initializes the client to connect to a local model.
+        
+        Args:
+            model (str): The name of the model to use (can be arbitrary for local models).
+            base_url (str): The base URL of the local model server 
+                           (e.g., "http://localhost:1234/v1").
+            concurrency (int): The maximum number of concurrent requests to make.
+            thinking (bool): Whether to enable 'thinking' mode for the model.
+        """
+        # The api_key can be a dummy value for local models.
+        client = AsyncOpenAI(base_url=base_url, api_key="not-needed")
+        super().__init__(model=model, client=client, concurrency=concurrency, thinking=thinking)
+        print(f"INFO: LocalModelLabeler initialized with model: {self.model} at {base_url}")
+
+
+def calculate_cohens_kappa(judgements_path1: str, judgements_path2: str) -> float:
+    """
+    Calculates Cohen's Kappa for two sets of judgements.
+
+    This function loads two sets of relevance judgements from the given file paths,
+    finds the judgements for common (query_id, doc_id) pairs, and then calculates
+    Cohen's Kappa score to measure the inter-rater agreement.
+
+    Args:
+        judgements_path1 (str): Path to the first judgements file.
+        judgements_path2 (str): Path to the second judgements file.
+
+    Returns:
+        float: The Cohen's Kappa score.
+    """
+    # Load the two sets of judgements
+    judgements1 = load_judgements(judgements_path1)
+    judgements2 = load_judgements(judgements_path2)
+
+    # Create dictionaries for faster lookup, mapping (query_id, doc_id) to score
+    scores1 = {(j.query_id, j.doc_id): j.score for j in judgements1}
+    scores2 = {(j.query_id, j.doc_id): j.score for j in judgements2}
+
+    # Find common keys (query_id, doc_id pairs)
+    common_keys = set(scores1.keys()).intersection(set(scores2.keys()))
+
+    if not common_keys:
+        print("Warning: No common judgements found between the two files.")
+        return 0.0
+
+    # Create lists of scores for the common judgements
+    rater1_scores = [scores1[key] for key in common_keys]
+    rater2_scores = [scores2[key] for key in common_keys]
+
+    # Calculate and return Cohen's Kappa
+    kappa_score = cohen_kappa_score(rater1_scores, rater2_scores)
+    
+    print(f"Found {len(common_keys)} common judgements.")
+    print(f"Cohen's Kappa: {kappa_score}")
+
+    return kappa_score
