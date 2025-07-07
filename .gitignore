@@ -175,3 +175,5 @@ data/.DS_Store
 data/documents/*
 data/pdfs/*
 src/.DS_Store
+data/judgments/*
+data/indices/*
