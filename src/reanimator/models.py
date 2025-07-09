@@ -3,6 +3,7 @@ from typing import List, Optional, Dict
 import pandas as pd
 from io import StringIO
 import json
+import os
 
 @dataclass
 class Table:
@@ -80,6 +81,7 @@ class Judgement:
     doc_id: str
     score: int
     source: str # e.g., 'human', 'synthetic-gpt4'
+    chunk_id: Optional[str] = None
 
 @dataclass
 class SearchResult:
@@ -104,6 +106,9 @@ def save_judgements(judgements: List[Judgement], file_path: str):
         judgements (List[Judgement]): The list of judgements to save.
         file_path (str): The path to the output JSON file.
     """
+    dir_path = os.path.dirname(file_path)
+    if dir_path:
+        os.makedirs(dir_path, exist_ok=True)
     with open(file_path, 'w') as f:
         json.dump([asdict(j) for j in judgements], f, indent=4)
 

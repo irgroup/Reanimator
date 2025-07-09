@@ -11,6 +11,8 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from nltk.tokenize import word_tokenize
 
 from .models import Document, Topic, Chunk, Ranking, SearchResult
+import pandas as pd
+import pyterrier as pt
 
 try:
     nltk.data.find('tokenizers/punkt')
@@ -101,7 +103,7 @@ class QueryRewriter:
 class Indexer:
     """Component for creating search indexes."""
 
-    def __init__(self, path: str, index_type: str = "both", max_docs: Optional[int] = 200):
+    def __init__(self, path: str, index_type: str = "both", max_docs: int = 200):
         if index_type not in ["vectorstore", "bm25", "both"]:
             raise ValueError("index_type must be one of 'vectorstore', 'bm25', or 'both'")
         self.index_type = index_type
@@ -168,9 +170,11 @@ class Retriever:
     def __init__(self, indexer: Indexer):
         self.indexer = indexer
 
-    def retrieve(self, query: Union[Topic, str], k: int = 100) -> Dict[str, List[Ranking]]:
+    def retrieve(self, topic: Topic, k: Optional[int] = None) -> Dict[str, List[Ranking]]:
         """Retrieves chunks for a query and its variations."""
         
+        retrieval_k = k if k is not None else self.indexer.max_docs
+
         use_dense = self.indexer.index_type in ['vectorstore', 'both']
         use_sparse = self.indexer.index_type in ['bm25', 'both']
 
@@ -181,24 +185,20 @@ class Retriever:
 
         all_rankings = {}
         
-        if isinstance(query, str):
-            queries_to_run = [query]
-            query_id = "ad-hoc"
-        else:
-            queries_to_run = query.rewritten_texts if query.rewritten_texts else [query.query_text]
-            query_id = query.query_id
+        queries_to_run = topic.rewritten_texts if topic.rewritten_texts else [topic.query_text]
+        query_id = topic.query_id
 
         for q_text in queries_to_run:
             if use_dense:
                 assert self.indexer.vector_store is not None
-                dense_results = self.indexer.vector_store.similarity_search_with_score(q_text, k=k)
-                dense_ranking = [SearchResult(doc_id=doc.metadata['doc_id'], chunk_id=doc.metadata['chunk_id'], score=score, rank=i) for i, (doc, score) in enumerate(dense_results)]
+                dense_results = self.indexer.vector_store.similarity_search_with_score(q_text, k=retrieval_k)
+                dense_ranking = [SearchResult(doc_id=doc.metadata['doc_id'], chunk_id=doc.metadata['chunk_id'], score=score, rank=i) for i, (doc, score) in enumerate(dense_results) if i < retrieval_k]
                 all_rankings[f"dense_{q_text[:20]}"] = Ranking(query_id=query_id, results=dense_ranking)
 
             if use_sparse:
                 assert self.indexer.bm25_retriever is not None
-                sparse_results = self.indexer.bm25_retriever.invoke(q_text, k=k)
-                sparse_ranking = [SearchResult(doc_id=doc.metadata['doc_id'], chunk_id=doc.metadata['chunk_id'], score=0, rank=i) for i, doc in enumerate(sparse_results)]
+                sparse_results = self.indexer.bm25_retriever.invoke(q_text, k=retrieval_k)
+                sparse_ranking = [SearchResult(doc_id=doc.metadata['doc_id'], chunk_id=doc.metadata['chunk_id'], score=0, rank=i) for i, doc in enumerate(sparse_results) if i < retrieval_k]
                 all_rankings[f"sparse_{q_text[:20]}"] = Ranking(query_id=query_id, results=sparse_ranking)
             
         return all_rankings
@@ -264,3 +264,43 @@ def reciprocal_rank_fusion(
     sorted_doc_ids = sorted(rrf_scores.keys(), key=lambda chunk_id: rrf_scores[chunk_id], reverse=True)
     
     return sorted_doc_ids 
+
+
+
+
+def judgements_to_df(judgements):
+    data = []
+    for j in judgements:
+        # Extract needed fields and add as a tuple/list
+        data.append([j.query_id, j.chunk_id, j.score])
+    # Create DataFrame
+    df = pd.DataFrame(data, columns=['qid', 'docno', 'label'])
+    return df
+
+def ranking_to_df(ranking):
+    data = []
+    ranking_dict = ranking.values()
+    
+    for ranking in ranking_dict:
+        for result in ranking.results:
+            data.append([ranking.query_id, result.chunk_id, result.score, result.rank])
+    df = pd.DataFrame(data, columns=['qid', 'docno', 'score', 'rank'])
+    return df
+
+def topic_to_df(topics):
+    data = []
+    for topic in topics:
+        data.append([topic.query_id, topic.query_text])
+    df = pd.DataFrame(data, columns=['qid', 'query'])
+    return df
+
+
+def run_experiment(rankings, topics, judgements, eval_metrics, names):
+    exp = pt.Experiment(
+        retr_systems=[ranking_to_df(ranking) for ranking in rankings],
+        topics=topic_to_df(topics),
+        qrels=judgements_to_df(judgements),
+        eval_metrics=eval_metrics,
+        names=names
+    )
+    return exp
