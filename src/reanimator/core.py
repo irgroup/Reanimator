@@ -114,8 +114,7 @@ class Reanimator:
         
         try:
             indexer_conf = retrieval_conf.get('indexer', {}).copy()
-            indexer_conf['vector_store_path'] = paths_conf['vector_store']
-            indexer_conf['bm25_path'] = paths_conf['bm25_index']
+            indexer_conf['path'] = paths_conf['index']
             retrieval_conf['indexer'] = indexer_conf
         except KeyError as e:
             raise ValueError(f"Configuration error: Missing path in 'paths' section: {e}")

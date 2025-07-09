@@ -162,7 +162,7 @@ class OpenAILabeler(_BaseOpenAILabeler):
     """
     A labeler that uses an OpenAI model (like GPT-4) to generate judgements.
     """
-    def __init__(self, model: str = "gpt-4.1-mini-2025-04-14", api_key: Optional[str] = None, concurrency: int = 10, thinking: bool = False, prompt_path: Optional[str] = None):
+    def __init__(self, model: str = "gpt-4.1-mini-2025-04-14", api_key: Optional[str] = None, concurrency: int = 10, thinking: bool = False, prompt_path: Optional[str] = "default_prompt.txt"):
         """
         Initializes the OpenAI client.
         
@@ -183,7 +183,7 @@ class LocalModelLabeler(_BaseOpenAILabeler):
     """
     A labeler that uses a local model served via an OpenAI-compatible API.
     """
-    def __init__(self, model: str, base_url: str, concurrency: int = 10, thinking: bool = False, prompt_path: Optional[str] = None):
+    def __init__(self, model: str, base_url: str, concurrency: int = 10, thinking: bool = False, prompt_path: Optional[str] = "default_prompt.txt"):
         """
         Initializes the client to connect to a local model.
         
@@ -193,7 +193,7 @@ class LocalModelLabeler(_BaseOpenAILabeler):
                            (e.g., "http://localhost:1234/v1").
             concurrency (int): The maximum number of concurrent requests to make.
             thinking (bool): Whether to enable 'thinking' mode for the model.
-            prompt_path (str, optional): Path to a custom prompt template file. Defaults to None.
+            prompt_path (str, optional): Path to a custom prompt template file. Defaults to the default prompt.
         """
         # The api_key can be a dummy value for local models.
         client = AsyncOpenAI(base_url=base_url, api_key="not-needed")

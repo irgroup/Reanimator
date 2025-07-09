@@ -1,6 +1,7 @@
 from typing import List, Dict, Optional, Union
 import os
 import pickle
+from collections import defaultdict
 import langchain_core.documents
 import nltk
 from langchain_community.retrievers import BM25Retriever
@@ -100,12 +101,13 @@ class QueryRewriter:
 class Indexer:
     """Component for creating search indexes."""
 
-    def __init__(self, vector_store_path: str, bm25_path: str, index_type: str = "both", max_docs: Optional[int] = 200):
+    def __init__(self, path: str, index_type: str = "both", max_docs: Optional[int] = 200):
         if index_type not in ["vectorstore", "bm25", "both"]:
             raise ValueError("index_type must be one of 'vectorstore', 'bm25', or 'both'")
         self.index_type = index_type
-        self.vector_store_path = vector_store_path
-        self.bm25_path = bm25_path
+        self.path = path
+        self.vector_store_path = os.path.join(self.path, "vector_store")
+        self.bm25_path = os.path.join(self.path, "bm25.pkl")
         self.vector_store = None
         self.bm25_retriever = None
         self.max_docs = max_docs
@@ -146,6 +148,7 @@ class Indexer:
             # We just need to ensure it's initialized with a persist_directory.
             pass
         if self.bm25_retriever and self.index_type in ['bm25', 'both']:
+            os.makedirs(os.path.dirname(self.bm25_path), exist_ok=True)
             with open(self.bm25_path, "wb") as f:
                 pickle.dump(self.bm25_retriever, f)
     
@@ -233,3 +236,31 @@ class RetrievalPipeline:
         
         print("\nRetrieval pipeline finished.")
         return final_rankings 
+
+
+def reciprocal_rank_fusion(
+    rankings_list: List[Dict[str, Ranking]], 
+    k: int = 60
+) -> List[str]:
+    """
+    Fuses multiple rankings into a single list of unique doc_ids using Reciprocal Rank Fusion.
+
+    Args:
+        rankings_list: A list of ranking dictionaries. Each dictionary contains rankings
+                       for a query, where keys are ranking names and values are Ranking objects.
+        k (int): A constant used in the RRF formula to control the influence of lower-ranked items.
+
+    Returns:
+        A list of unique doc_ids, sorted by their fused RRF score in descending order.
+    """
+    rrf_scores = defaultdict(float)
+
+    for ranking_dict in rankings_list:
+        for ranking in ranking_dict.values():
+            for result in ranking.results:
+                # Ranks are 0-indexed, add 1 for 1-based rank in RRF formula
+                rrf_scores[result.chunk_id] += 1 / (k + result.rank + 1)
+    
+    sorted_doc_ids = sorted(rrf_scores.keys(), key=lambda chunk_id: rrf_scores[chunk_id], reverse=True)
+    
+    return sorted_doc_ids 

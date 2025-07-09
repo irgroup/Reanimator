@@ -3,8 +3,7 @@
     "url_cache": "data/pdf_urls.pkl",
     "pdf_downloads": "data/pdfs",
     "pdf_list": "data/pdf_list.txt",
-    "vector_store": "data/vectorstore",
-    "bm25_index": "data/bm25_retriever.pkl"
+    "index": "data/indices"
   },
   "downloader": {
     "max_workers": 10
