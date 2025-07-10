@@ -1,0 +1,18 @@
+services:
+  reanimator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    image: reanimator
+    volumes:
+      - ./:/workspace
+    tty: true

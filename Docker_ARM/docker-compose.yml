@@ -1,0 +1,16 @@
+version: '3.8'
+services:
+  reanimator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # Explicitly set the platform to ARM64 for Apple Silicon
+      # This helps Docker Desktop choose the right architecture
+      # Remove this if you want to support both x86_64 and arm64
+      # Or set to linux/amd64 on Intel Macs
+      platforms:
+        - linux/arm64
+    image: reanimator
+    volumes:
+      - ./:/workspace
+    tty: true
