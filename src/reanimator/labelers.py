@@ -16,7 +16,7 @@ class TopicChunkPair(TypedDict):
     topic: Topic
     chunk: Chunk
 
-#code is adapted from https://github.com/castorini/umbrela
+
 def parse_fewshot_response(response: str):
     response = response.strip().lower()
     valid_res = 1
@@ -83,9 +83,6 @@ class _BaseOpenAILabeler(BaseLabeler):
     Base class for labelers using an OpenAI-compatible API. Not intended for direct use.
     """
     def __init__(self, model: str, client: AsyncOpenAI, thinking: bool = False, concurrency: int = 10, prompt_path: Optional[str] = None):
-        
-        #default prompt is adapted from https://github.com/castorini/umbrela/blob/main/src/umbrela/prompts/qrel_zeroshot_bing.txt
-        
         self.model = model
         self.client = client
         if prompt_path:
@@ -133,12 +130,12 @@ class _BaseOpenAILabeler(BaseLabeler):
         Calls the OpenAI API to get a relevance score.
         """
         if not chunk.text:
-            return Judgement(topic.query_id, chunk.doc_id, score=0, source=f"synthetic-{self.model}-skipped", chunk_id=chunk.chunk_id)
+            return Judgement(topic.query_id, chunk.doc_id,chunk_id=chunk.chunk_id, score=0, source=f"synthetic-{self.model}-skipped")
 
         prompt = self._construct_prompt(topic, chunk)
         response_text = await self.generate_response(prompt)
         score = parse_fewshot_response(response_text)
-        return Judgement(topic.query_id, chunk.doc_id, score=score, source=f"synthetic-{self.model}", chunk_id=chunk.chunk_id)
+        return Judgement(topic.query_id, chunk.doc_id, chunk_id=chunk.chunk_id, score=score, source=f"synthetic-{self.model}")
 
     async def label_all(self, pairs: List[TopicChunkPair]) -> List[Judgement]:
         """
@@ -165,7 +162,7 @@ class OpenAILabeler(_BaseOpenAILabeler):
     """
     A labeler that uses an OpenAI model (like GPT-4) to generate judgements.
     """
-    def __init__(self, model: str = "gpt-4.1-mini-2025-04-14", api_key: Optional[str] = None, concurrency: int = 10, thinking: bool = False, prompt_path: Optional[str] = "default_prompt.txt"):
+    def __init__(self, model: str = "gpt-4.1-mini-2025-04-14", api_key: Optional[str] = None, concurrency: int = 10, thinking: bool = False, prompt_path: Optional[str] = None):
         """
         Initializes the OpenAI client.
         
@@ -186,7 +183,7 @@ class LocalModelLabeler(_BaseOpenAILabeler):
     """
     A labeler that uses a local model served via an OpenAI-compatible API.
     """
-    def __init__(self, model: str, base_url: str, concurrency: int = 10, thinking: bool = False, prompt_path: Optional[str] = "default_prompt.txt"):
+    def __init__(self, model: str, base_url: str, concurrency: int = 10, thinking: bool = False, prompt_path: Optional[str] = None):
         """
         Initializes the client to connect to a local model.
         
@@ -196,7 +193,7 @@ class LocalModelLabeler(_BaseOpenAILabeler):
                            (e.g., "http://localhost:1234/v1").
             concurrency (int): The maximum number of concurrent requests to make.
             thinking (bool): Whether to enable 'thinking' mode for the model.
-            prompt_path (str, optional): Path to a custom prompt template file. Defaults to the default prompt.
+            prompt_path (str, optional): Path to a custom prompt template file. Defaults to None.
         """
         # The api_key can be a dummy value for local models.
         client = AsyncOpenAI(base_url=base_url, api_key="not-needed")
@@ -224,8 +221,8 @@ def calculate_cohens_kappa(judgements_path1: str, judgements_path2: str) -> floa
     judgements2 = load_judgements(judgements_path2)
 
     # Create dictionaries for faster lookup, mapping (query_id, doc_id) to score
-    scores1 = {(j.query_id, j.chunk_id): j.score for j in judgements1}
-    scores2 = {(j.query_id, j.chunk_id): j.score for j in judgements2}
+    scores1 = {(j.query_id, j.doc_id): j.score for j in judgements1}
+    scores2 = {(j.query_id, j.doc_id): j.score for j in judgements2}
 
     # Find common keys (query_id, doc_id pairs)
     common_keys = set(scores1.keys()).intersection(set(scores2.keys()))
@@ -245,6 +242,3 @@ def calculate_cohens_kappa(judgements_path1: str, judgements_path2: str) -> floa
     print(f"Cohen's Kappa: {kappa_score}")
 
     return kappa_score
-
-
-

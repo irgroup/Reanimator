@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import Tuple, List, Optional
 import pandas as pd
-from .models import Table, Document
+from .models import Table, Figure, Document
+import re
 import docling
 import os
 import time
@@ -16,6 +17,168 @@ from docling.datamodel.pipeline_options import (
 )
 from docling.datamodel.base_models import InputFormat, ConversionStatus
 
+def create_table(tbl, idx, dl_doc, doc):
+    """
+    create Table Object from Docling table, index (table number in document) and Docling document.
+
+    Args:
+    tbl: Docling Table.
+    idx: table index.
+    dl_doc: Docling document containing tbl.
+    doc: current Document for id creation.
+
+    Returns:
+    The extracted table name as Table Class Object.
+    """
+    try:
+        df = tbl.export_to_dataframe()
+    except Exception:  # pragma: no cover – fall‑back path rarely needed
+        # *export_to_dataframe* may fail on exotic edge cases; fall back to
+        # the raw 2‑D grid when that happens so callers still get the data.
+        grid = getattr(tbl.data, "grid", [])
+        df = pd.DataFrame(grid)
+
+    try:
+        pos_page = tbl.prov[0].page_no
+        pos_left,pos_top,pos_right,pos_bottom = tbl.prov[0].bbox.as_tuple()
+        table_id = f"{doc.doc_id}_table_{idx + 1}"
+
+        try:
+            caption = tbl.caption_text(dl_doc)
+        except:
+            return Table(id=table_id, content=df, pos_page=pos_page, pos_left=pos_left,  pos_top=pos_top, pos_right=pos_right, pos_bottom=pos_bottom)
+
+        if (not caption) or (caption == "") or (caption is None):
+            return Table(id=table_id, content=df, pos_page=pos_page, pos_left=pos_left,  pos_top=pos_top, pos_right=pos_right, pos_bottom=pos_bottom)
+
+        name = extract_name(caption, type_extraction="table")
+        if name and name is not None:
+                references = find_mentions(dl_doc, name, caption, type_extraction="table")
+        else:
+            return Table(id=table_id, content=df, caption=caption, pos_page=pos_page, pos_left=pos_left,  pos_top=pos_top, pos_right=pos_right, pos_bottom=pos_bottom)
+
+        return Table(id=table_id, content=df, caption=caption, name=name, references=references, pos_page=pos_page, pos_left=pos_left,  pos_top=pos_top, pos_right=pos_right, pos_bottom=pos_bottom)
+    except Exception:
+        print(f"error parsing table.")
+        return None
+    
+def create_figure(fig, idx, dl_doc, doc):
+    """
+    create Figure Object from Docling figure, index (figure number in document) and Docling document.
+
+    Args:
+    fig: Docling Figure.
+    idx: figure index.
+    dl_doc: Docling document containing fig.
+    doc: current Document for id creation.
+
+    Returns:
+    The extracted figure name as Figure Class Object.
+    """
+    try:
+        pos_page = fig.prov[0].page_no
+        pos_left,pos_top,pos_right,pos_bottom = fig.prov[0].bbox.as_tuple()
+        figure_id = f"{doc.doc_id}_figure_{idx + 1}"
+
+        try:
+            caption = fig.caption_text(dl_doc) 
+        except:
+            return Figure(id=figure_id, pos_page=pos_page, pos_left=pos_left, pos_top=pos_top, pos_right=pos_right, pos_bottom=pos_bottom)
+        
+        if not caption or caption is "" or caption is None:
+            return Figure(id=figure_id, pos_page=pos_page, pos_left=pos_left, pos_top=pos_top, pos_right=pos_right, pos_bottom=pos_bottom)
+            
+
+        name = extract_name(caption, type_extraction="figure")
+        if name and name is not None:
+                references = find_mentions(dl_doc, name, caption, type_extraction="figure")
+        else:
+            return Figure(id=figure_id, caption=caption, pos_page=pos_page, pos_left=pos_left, pos_top=pos_top, pos_right=pos_right, pos_bottom=pos_bottom)
+
+        return Figure(id=figure_id, caption=caption, name=name, references=references, pos_page=pos_page, pos_left=pos_left, pos_top=pos_top, pos_right=pos_right, pos_bottom=pos_bottom)
+    except Exception:
+        print(f"error parsing figure.")
+        return None
+
+def extract_name(caption_text, type_extraction="table"):
+    """
+    Extracts the name of a table from a caption text.
+
+    Args:
+    caption_text: The full text of the table caption.
+
+    Returns:
+    The extracted table name as a string, or None if no table name is found.
+    """
+    if not caption_text:
+        return None
+    if type_extraction == "table":
+        match = re.match(r'(?:Table|tab|tab\.)\s+[A-Za-z0-9]+', caption_text, re.IGNORECASE)
+    elif type_extraction == "figure": 
+        match = re.match(r'(?:Figure|fig|fig\.)\s+[A-Za-z0-9]+', caption_text, re.IGNORECASE)
+    else:
+        match = None
+    if match:
+        return match.group(0)
+    else:
+        return None
+
+
+def find_mentions(doc, name: str, caption: str, type_extraction: str = "table") -> List[str]:
+    """
+    Finds sentences in a document that mention a specific table or figure by its name and number,
+    excluding the table's or figure's caption.
+
+    Args:
+    doc: The document object with a 'texts' attribute containing document text elements.
+    name: The name of the table or figure (e.g., "Table 1", "Tab. 22", "Tab X").
+    caption: The full caption text of the table or figure.
+
+    Returns:
+    A list of sentences that mention the table or figure, excluding the caption itself.
+    """
+    try:
+        type_extraction = type_extraction.lower()
+        patterns = {
+            "table":  r"(Table|Tab\.?|tab\.?)\s*([A-Za-z0-9]+)",
+            "figure": r"(Figure|Fig\.?|fig\.?)\s*([A-Za-z0-9]+)",
+        }
+        
+        if type_extraction not in patterns:
+            raise ValueError(f"Unknown entity type: {type_extraction!r}")
+
+        # ── parse the name ──────────────────────────────────────────────────────────
+        m = re.match(patterns[type_extraction], name, flags=re.IGNORECASE)
+        if not m:
+            # Name doesn’t look like “Table 3” or “Fig. 2a”, bail out early.
+            return []
+        try:
+            type_token, number = m.groups()
+            number = re.escape(number)
+        except:
+            print(f"problem with splitting name and number: {name} --> {m}")
+            return []
+
+        # Build a pattern that catches the different abbreviations the text might use
+        if type_extraction == "table":
+            mention_re = re.compile(rf"(?:{type_token}|Table|Tab\.?|tab\.?)\s*{number}", re.IGNORECASE)
+        else:  # figure
+            mention_re = re.compile(rf"(?:{type_token}|Figure|Fig\.?|fig\.?)\s*{number}", re.IGNORECASE)
+
+        # ── scan the document ──────────────────────────────────────────────────────
+        mentions = []
+        for element in getattr(doc, "texts", []):
+            text = getattr(element, "text", "")
+            if not text or text.strip() == caption.strip():
+                continue
+
+            sentences = re.split(r"(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s+", text)
+            mentions.extend(s.strip() for s in sentences if mention_re.search(s))
+
+        return mentions
+    except Exception as exc:
+        print(f"[find_mentions] unexpected error for {name!r}: {exc}")
+        return []
 
 class BaseExtractor(ABC):
     """Abstract base class for all extractors."""
@@ -106,21 +269,23 @@ class DoclingExtractor(BaseExtractor):
             doc.tables = []  # reset in case we are re‑processing
             for idx, tbl in enumerate(dl_doc.tables):
                 # Convert to a Pandas DataFrame (keeps cell structure intact)
-                try:
-                    df = tbl.export_to_dataframe()
-                except Exception:  # pragma: no cover – fall‑back path rarely needed
-                    # *export_to_dataframe* may fail on exotic edge cases; fall back to
-                    # the raw 2‑D grid when that happens so callers still get the data.
-                    grid = getattr(tbl.data, "grid", [])
-                    df = pd.DataFrame(grid)
-
-                caption: Optional[str] = getattr(tbl, "caption", None)
-                table_id = f"{doc.doc_id}_table_{idx + 1}"
-                doc.tables.append(Table(id=table_id, content=df, caption=caption))
+                
+                tab_data = create_table(tbl, idx, dl_doc, doc)
+                if tab_data:
+                    doc.tables.append(tab_data)
+            # ----------------------------------------------------------------------------------
+            # 4. Extract figures
+            # ----------------------------------------------------------------------------------
+            doc.figures = []  # reset in case we are re‑processing
+            for idx, fig in enumerate(dl_doc.pictures):
+                
+                fig_data = create_figure(fig, idx, dl_doc, doc)
+                if fig_data:
+                    doc.figures.append(fig_data)
 
         except Exception as exc:
             # ------------------------------------------------------------------------------
-            # 4. Robust error handling – never crash the ingestion pipeline
+            # 5. Robust error handling – never crash the ingestion pipeline
             # ------------------------------------------------------------------------------
             print(f"[DoclingExtractor] failed for {doc.pdf_path}: {exc}")
             doc.text = None
