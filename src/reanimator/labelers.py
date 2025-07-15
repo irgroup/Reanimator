@@ -133,12 +133,12 @@ class _BaseOpenAILabeler(BaseLabeler):
         Calls the OpenAI API to get a relevance score.
         """
         if not chunk.text:
-            return Judgement(topic.query_id, chunk.doc_id, score=0, source=f"synthetic-{self.model}-skipped", chunk_id=chunk.chunk_id)
+            return Judgement(topic.query_id, chunk.doc_id,chunk_id=chunk.chunk_id, score=0, source=f"synthetic-{self.model}-skipped")
 
         prompt = self._construct_prompt(topic, chunk)
         response_text = await self.generate_response(prompt)
         score = parse_fewshot_response(response_text)
-        return Judgement(topic.query_id, chunk.doc_id, score=score, source=f"synthetic-{self.model}", chunk_id=chunk.chunk_id)
+        return Judgement(topic.query_id, chunk.doc_id, chunk_id=chunk.chunk_id, score=score, source=f"synthetic-{self.model}")
 
     async def label_all(self, pairs: List[TopicChunkPair]) -> List[Judgement]:
         """
@@ -245,6 +245,3 @@ def calculate_cohens_kappa(judgements_path1: str, judgements_path2: str) -> floa
     print(f"Cohen's Kappa: {kappa_score}")
 
     return kappa_score
-
-
-

@@ -31,7 +31,8 @@ dependencies = [
     "langchain_community",
     "nltk",
     "langchain_openai",
-    "rank_bm25"
+    "rank_bm25",
+    "ipywidgets"
 ]
 
 [project.urls]

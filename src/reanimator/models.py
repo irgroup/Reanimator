@@ -11,7 +11,14 @@ class Table:
     id: str
     content: pd.DataFrame
     caption: Optional[str] = None
+    name: Optional[str] = None
+    references: Optional[List[str]] = None
     metadata: Dict = field(default_factory=dict)
+    pos_page: Optional[int] = None
+    pos_top: Optional[float] = None
+    pos_left: Optional[float] = None
+    pos_right: Optional[float] = None
+    pos_bottom: Optional[float] = None
 
     def to_dict(self):
         """Converts the Table object to a JSON-serializable dictionary."""
@@ -24,6 +31,31 @@ class Table:
         """Creates a Table object from a dictionary."""
         d['content'] = pd.read_json(StringIO(d['content']), orient='split')
         return cls(**d)
+    
+@dataclass
+class Figure:
+    """Represents a single figure extracted from a document."""
+    id: str
+    caption: Optional[str] = None
+    name: Optional[str] = None
+    references: Optional[List[str]] = None
+    metadata: Dict = field(default_factory=dict)
+    pos_page: Optional[int] = None
+    pos_top: Optional[float] = None
+    pos_left: Optional[float] = None
+    pos_right: Optional[float] = None
+    pos_bottom: Optional[float] = None
+
+    def to_dict(self):
+        """Converts the Figure object to a JSON-serializable dictionary."""
+        d = asdict(self)
+        return d
+
+    @classmethod
+    def from_dict(cls, d: Dict) -> 'Figure':
+        """Creates a Figure object from a dictionary."""
+        return cls(**d)
+
 
 @dataclass
 class Document:
@@ -34,6 +66,7 @@ class Document:
     pdf_path: Optional[str] = None
     text: Optional[str] = None
     tables: List[Table] = field(default_factory=list)
+    figures: List[Figure] = field(default_factory=list)
     chunks: List["Chunk"] = field(default_factory=list)
     metadata: Dict = field(default_factory=dict)
 
@@ -41,6 +74,7 @@ class Document:
         """Converts the Document object to a JSON-serializable dictionary."""
         d = asdict(self)
         d['tables'] = [t.to_dict() for t in self.tables]
+        d['figures'] = [f.to_dict() for f in self.figures]
         d['chunks'] = [asdict(c) for c in self.chunks]
         return d
 
@@ -48,13 +82,16 @@ class Document:
     def from_dict(cls, d: Dict) -> 'Document':
         """Creates a Document object from a dictionary."""
         table_data = d.pop('tables', [])
+        figure_data = d.pop('figures', [])
         chunk_data = d.pop('chunks', [])
         # Recreate the document with the remaining simple fields
         doc = cls(**d)
         # Reconstruct and assign the complex nested objects
         doc.tables = [Table.from_dict(t) for t in table_data]
+        doc.figures = [Figure.from_dict(f) for f in figure_data]
         doc.chunks = [Chunk(**c) for c in chunk_data]
         return doc
+
 
 @dataclass
 class Topic:
@@ -64,6 +101,10 @@ class Topic:
     context: Optional[Dict] = field(default_factory=dict)
     rewritten_texts: List[str] = field(default_factory=list)
     metadata: Dict = field(default_factory=dict)
+    def to_dict(self):
+        """Converts the Document object to a JSON-serializable dictionary."""
+        d = asdict(self)
+        return d
 
 @dataclass
 class Chunk:
@@ -74,6 +115,12 @@ class Chunk:
     modality: str  # e.g., 'text', 'table'
     metadata: Dict = field(default_factory=dict)
 
+    def to_dict(self):
+        """Converts the Document object to a JSON-serializable dictionary."""
+        d = asdict(self)
+        return d
+
+
 @dataclass
 class Judgement:
     """Represents a relevance judgement for a query-document pair."""
@@ -82,6 +129,12 @@ class Judgement:
     score: int
     source: str # e.g., 'human', 'synthetic-gpt4'
     chunk_id: Optional[str] = None
+
+    
+    def to_dict(self):
+        """Converts the Document object to a JSON-serializable dictionary."""
+        d = asdict(self)
+        return d
 
 @dataclass
 class SearchResult:

@@ -26,6 +26,7 @@ Key features include:
         ├── core.py        # Main pipeline orchestration
         ├── downloaders.py # PDF downloading logic
         ├── extractors.py  # Content extraction from documents
+        ├── labeling.py    # Human relevance labeling
         ├── labelers.py    # Synthetic query and label generation
         ├── models.py      # Data models (Document, Query, etc.)
         ├── retrieval.py   # Retrieval and ranking pipelines
