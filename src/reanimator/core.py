@@ -3,7 +3,7 @@ import pickle
 import os
 import json
 import pkgutil
-from .sources import CollectionSource
+from .sources import CollectionSource, ArxivSource
 from .downloaders import PDFDownloader
 from .extractors import BaseExtractor, DoclingExtractor
 from .labelers import BaseLabeler, OpenAILabeler
@@ -36,14 +36,15 @@ class Reanimator:
     retrieval_pipeline: "RetrievalPipeline"
     downloader_params: dict
 
-    def __init__(self, irds_name: str, email: str, config: Optional[dict] = None):
+    def __init__(self, irds_name: Optional[str] = None, email: Optional[str] = None, config: Optional[dict] = None, arxiv_ids: Optional[List[str]] = None):
         """
         Initializes the Reanimator pipeline.
 
         Args:
-            irds_name (str): The ir-datasets name for the collection.
-            email (str): Your email, for politeness with the Unpaywall API.
+            irds_name (str, optional): The ir-datasets name for the collection.
+            email (str, optional): Your email, for politeness with the Unpaywall API.
             config (dict, optional): Configuration for custom components. Defaults to None.
+            arxiv_ids (List[str], optional): If provided, use the ArxivSource for these IDs instead of a collection source.
         """
         # Load default config from package
         default_config_bytes = pkgutil.get_data('reanimator', 'default_config.json')
@@ -58,7 +59,12 @@ class Reanimator:
 
         self.irds_name = irds_name
         self.email = email
-        self.source = CollectionSource(irds_name=self.irds_name)
+        if arxiv_ids:
+            self.source = ArxivSource(arxiv_ids=arxiv_ids)
+        else:
+            if not self.irds_name:
+                raise ValueError("Either 'arxiv_ids' must be provided or a valid 'irds_name' must be set.")
+            self.source = CollectionSource(irds_name=self.irds_name)
 
         self._initialize_components()
 
@@ -75,7 +81,8 @@ class Reanimator:
         else:
             params = downloader_conf.copy()
             if 'email' not in params:
-                params['email'] = self.email
+                # Fallback email for arXiv-only runs (no Unpaywall usage)
+                params['email'] = self.email or 'arxiv@local'
             
             try:
                 init_params = {
