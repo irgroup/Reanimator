@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Tuple, List, Optional
+from typing import Tuple, List, Optional, TYPE_CHECKING
 import pandas as pd
 from .models import Table, Figure, Document
 import re
@@ -9,9 +9,18 @@ import time
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
+
+import urllib.request as libreq
+import xmltodict
+import re
+import time
+from typing import Optional, Dict, Any
+from urllib import request, parse, error
+
 import easyocr
 from docling.document_converter import DocumentConverter, PdfFormatOption
-from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
+if TYPE_CHECKING:
+    from docling.datamodel.accelerator_options import AcceleratorOptions
 from docling.datamodel.pipeline_options import (
     PdfPipelineOptions,
 )
@@ -99,6 +108,7 @@ def create_figure(fig, idx, dl_doc, doc):
     except Exception:
         print(f"error parsing figure.")
         return None
+    
 
 def extract_name(caption_text, type_extraction="table"):
     """
@@ -179,11 +189,105 @@ def find_mentions(doc, name: str, caption: str, type_extraction: str = "table") 
     except Exception as exc:
         print(f"[find_mentions] unexpected error for {name!r}: {exc}")
         return []
+    
+
+_ARXIV_ID_RE = re.compile(
+    r"""^(
+        \d{4}\.\d{4,5}(v\d+)?                # new style: 2101.12345 or 2101.12345v2
+        |
+        [a-z\-]+(\.[a-z\-]+)?/\d{7}(v\d+)?   # old style: cs.CL/0301001 or cs/0301001v3
+    )$""",
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def convert_arxiv_metadata_to_reanimator_schema(res: dict) -> dict:
+    """
+    Convert the arXiv metadata to the Reanimator schema.
+    """
+    ret = {
+        "doi": res.get("arxiv:doi", {}).get("#text"),
+        "url": res.get("id"),
+        "summary": res.get("summary"),
+        "metadata": {
+            "updated": res.get("updated"),
+            "published": res.get("published"),
+            "title": res.get("title"),
+            "summary": res.get("summary"),
+            "author": res.get("author"),
+            "category": res.get("category"),
+            "arxiv:comment": res.get("arxiv:comment"),
+            "arxiv:journal_ref": res.get("arxiv:journal_ref"),
+            "arxiv:primary_category": res.get("arxiv:primary_category"),
+        },
+    }
+    return ret
+
+def get_arxiv_metadata(arxiv_id: str, *, timeout: float = 0.1, max_retries: int = 2) -> Optional[Dict[str, Any]]:
+    """
+    Fetch metadata for a single arXiv ID via the arXiv API.
+
+    Returns:
+        A dict representing the <entry> for the paper, or None if not found.
+
+    Raises:
+        ValueError: if `arxiv_id` looks invalid.
+    """
+    arxiv_id = arxiv_id.strip()
+    if not _ARXIV_ID_RE.match(arxiv_id):
+        raise ValueError(f"Invalid-looking arXiv ID: {arxiv_id!r}")
+
+    base_url = "https://export.arxiv.org/api/query?id_list="
+    url = base_url + parse.quote(arxiv_id)
+
+    # arXiv asks for a descriptive User-Agent with contact info.
+    # Replace the email with your own.
+    headers = {
+        "User-Agent": "arXivMetaFetcher/1.0 (mailto:your.email@example.com)"
+    }
+
+    for attempt in range(max_retries + 1):
+        try:
+            req = request.Request(url, headers=headers)
+            with request.urlopen(req, timeout=timeout) as resp:
+                data = resp.read()
+
+            results = xmltodict.parse(data.decode("utf-8"))
+            feed = results.get("feed", {})
+            entry = feed.get("entry")
+
+            if not entry:
+                # No result for this ID
+                return None
+
+            # For a single id, some parsers still return a list; normalize to dict
+            if isinstance(entry, list):
+                entry = entry[0]
+
+            return convert_arxiv_metadata_to_reanimator_schema(entry)
+
+        except error.HTTPError as e:
+            # Retry on 5xx; fail fast on client errors
+            if 500 <= e.code < 600 and attempt < max_retries:
+                time.sleep(0.5 * (2 ** attempt))
+                continue
+            raise
+        except (error.URLError, TimeoutError) as e:
+            # Network hiccup: retry
+            if attempt < max_retries:
+                time.sleep(0.5 * (2 ** attempt))
+                continue
+            raise
+
+    # Shouldn't reach here
+    return None
+
+
 
 class BaseExtractor(ABC):
     """Abstract base class for all extractors."""
     @abstractmethod
-    def extract(self, doc: Document, accelerator_options: Optional[AcceleratorOptions] = None) -> None:
+    def extract(self, doc: Document, accelerator_options: Optional["AcceleratorOptions"] = None) -> None:
         """
         Extracts content from a document's file and populates the
         document object with the extracted text and tables.
@@ -213,7 +317,7 @@ class DoclingExtractor(BaseExtractor):
     # ---------------------------------------------------------------------
     # Public API
     # ---------------------------------------------------------------------
-    def extract(self, doc: Document, accelerator_options: Optional[AcceleratorOptions] = None) -> None:  # noqa: C901 – a bit long but readable
+    def extract(self, doc: Document, accelerator_options: Optional["AcceleratorOptions"] = None) -> None:  # noqa: C901 – a bit long but readable
         """Populate *doc.text* and *doc.tables* by running Docling on ``doc.pdf_path``.
 
         All attributes are updated *in‑place*.  In case of any unrecoverable error
@@ -282,10 +386,20 @@ class DoclingExtractor(BaseExtractor):
                 fig_data = create_figure(fig, idx, dl_doc, doc)
                 if fig_data:
                     doc.figures.append(fig_data)
+            # ----------------------------------------------------------------------------------
+            # 5. Extract arXiv metadata
+            # ----------------------------------------------------------------------------------
+            if _ARXIV_ID_RE.match(doc.doc_id):
+                res = get_arxiv_metadata(doc.doc_id)
+                doc["doi"] = res["doi"]
+                doc["url"] = res["url"]
+                doc["summary"] = res["summary"]
+                doc["metadata"] = res["metadata"]
+            
 
         except Exception as exc:
             # ------------------------------------------------------------------------------
-            # 5. Robust error handling – never crash the ingestion pipeline
+            # 6. Robust error handling – never crash the ingestion pipeline
             # ------------------------------------------------------------------------------
             print(f"[DoclingExtractor] failed for {doc.pdf_path}: {exc}")
             doc.text = None
