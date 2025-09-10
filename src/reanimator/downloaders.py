@@ -90,17 +90,20 @@ class PDFDownloader:
 
     def _download_single_pdf(self, doc: Document) -> Optional[str]:
         """Downloads a single PDF if a URL is available."""
+        # If DOI present, prefer cached URL; otherwise keep existing URL (e.g., arXiv)
         if doc.doi:
             doc.url = self.urls.get(doc.doi)
         if not doc.url:
             return None
-        
+
+       
+        # Choose filename: DOI-based if available, else use doc_id (e.g., arXiv ID)
         if doc.doi:
             pdf_path = self._doi_to_path(doc.doi, self.output_dir)
-            doc.pdf_path = pdf_path
         else:
-            # Should not happen if we have a URL, but good to be safe
-            return None
+            safe_id = str(doc.doc_id).replace("/", "$")
+            pdf_path = os.path.join(self.output_dir, f"{safe_id}.pdf")
+        doc.pdf_path = pdf_path
 
         if os.path.exists(pdf_path):
             return pdf_path
@@ -120,7 +123,8 @@ class PDFDownloader:
         """
         Downloads PDFs for a list of documents in parallel.
         """
-        docs_to_download = [doc for doc in documents if doc.doi]
+        # Download if we have a DOI (to resolve URL via cache) or an explicit URL (e.g., arXiv)
+        docs_to_download = [doc for doc in documents if doc.doi or doc.url]
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_doc = {executor.submit(self._download_single_pdf, doc): doc for doc in docs_to_download}
