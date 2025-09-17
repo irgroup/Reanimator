@@ -56,6 +56,30 @@ class Figure:
         """Creates a Figure object from a dictionary."""
         return cls(**d)
 
+@dataclass
+class Formula:
+    """Represents a single formula extracted from a document."""
+    id: str
+    text: str
+    latex: Optional[str] = None
+    page: int = -1
+    metadata: Dict = field(default_factory=dict)
+    pos_page: Optional[int] = None
+    pos_top: Optional[float] = None
+    pos_left: Optional[float] = None
+    pos_right: Optional[float] = None
+    pos_bottom: Optional[float] = None
+
+    def to_dict(self):
+        """Converts the Formula object to a JSON-serializable dictionary."""
+        d = asdict(self)
+        return d
+
+    @classmethod
+    def from_dict(cls, d: Dict) -> 'Formula':
+        """Creates a Formula object from a dictionary."""
+        return cls(**d)
+
 
 @dataclass
 class Document:
@@ -67,6 +91,7 @@ class Document:
     text: Optional[str] = None
     tables: List[Table] = field(default_factory=list)
     figures: List[Figure] = field(default_factory=list)
+    formulas: List[Formula] = field(default_factory=list)
     chunks: List["Chunk"] = field(default_factory=list)
     metadata: Dict = field(default_factory=dict)
 
@@ -75,6 +100,7 @@ class Document:
         d = asdict(self)
         d['tables'] = [t.to_dict() for t in self.tables]
         d['figures'] = [f.to_dict() for f in self.figures]
+        d['formulas'] = [f.to_dict() for f in self.formulas]
         d['chunks'] = [asdict(c) for c in self.chunks]
         return d
 
@@ -83,12 +109,14 @@ class Document:
         """Creates a Document object from a dictionary."""
         table_data = d.pop('tables', [])
         figure_data = d.pop('figures', [])
+        formula_data = d.pop('formulas', [])
         chunk_data = d.pop('chunks', [])
         # Recreate the document with the remaining simple fields
         doc = cls(**d)
         # Reconstruct and assign the complex nested objects
         doc.tables = [Table.from_dict(t) for t in table_data]
         doc.figures = [Figure.from_dict(f) for f in figure_data]
+        doc.formulas = [Formula.from_dict(f) for f in formula_data]
         doc.chunks = [Chunk(**c) for c in chunk_data]
         return doc
 

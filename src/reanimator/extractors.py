@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Tuple, List, Optional
 import pandas as pd
-from .models import Table, Figure, Document
+from .models import Table, Figure, Formula, Document
 import re
 import docling
 import os
@@ -16,6 +16,74 @@ from docling.datamodel.pipeline_options import (
     PdfPipelineOptions,
 )
 from docling.datamodel.base_models import InputFormat, ConversionStatus
+from docling.datamodel.pipeline_options import PdfPipelineOptions
+from docling.datamodel.base_models import InputFormat
+from docling_core.types.doc import DocItemLabel, DoclingDocument, TextItem
+import json
+from dataclasses import asdict
+from typing import List, Optional
+from pathlib import Path
+
+# =============================
+# Normalization / utils
+# =============================
+import re
+
+CONTROL_CHARS = re.compile(r"[\x00-\x1F\x7F]")
+ZERO_WIDTHS   = re.compile(r"[\u200B-\u200D\u2060\uFEFF]")
+WS            = re.compile(r"\s+")
+
+SUPERSCRIPT_MAP = str.maketrans({
+    "⁰":"0","¹":"1","²":"2","³":"3","⁴":"4","⁵":"5","⁶":"6","⁷":"7","⁸":"8","⁹":"9",
+    "ᵃ":"a","ᵇ":"b","ᶜ":"c","ᵈ":"d","ᵉ":"e","ᶠ":"f","ᵍ":"g","ʰ":"h","ᶦ":"i","ʲ":"j","ᵏ":"k",
+    "ˡ":"l","ᵐ":"m","ⁿ":"n","ᵒ":"o","ᵖ":"p","ʳ":"r","ˢ":"s","ᵗ":"t","ᵘ":"u","ᵛ":"v","ʷ":"w",
+    "ˣ":"x","ʸ":"y","ᶻ":"z"
+})
+
+def hard_norm(s: str) -> str:
+    if not s: return ""
+    s = s.translate(SUPERSCRIPT_MAP)      # normalize superscripts -> plain
+    s = s.replace("\u00AD", "")           # soft hyphen
+    s = s.replace("\u00A0", " ")          # NBSP
+    s = ZERO_WIDTHS.sub("", s)
+    s = CONTROL_CHARS.sub(" ", s)
+    s = WS.sub(" ", s).strip()
+    return s
+
+def _as_list(x):
+    if x is None: return []
+    return x if isinstance(x, list) else [x]
+
+def _page_of(item: TextItem) -> int:
+    provs = _as_list(getattr(item, "prov", None))
+    if not provs: return -1
+    return (getattr(provs[0], "page_no", 0) or 0) + 1
+
+def convert_with_formula_enrichment(pdf_path: str | Path) -> DoclingDocument:
+    opts = PdfPipelineOptions()
+    opts.do_formula_enrichment = True
+    conv = DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts)})
+    return conv.convert(str(pdf_path)).document
+
+def collect_formulas(doc: DoclingDocument) -> List[Formula]:
+    out: List[Formula] = []
+    for item, _lvl in doc.iterate_items():
+        if isinstance(item, TextItem) and item.label == DocItemLabel.FORMULA:
+            page = _page_of(item)
+            text = hard_norm(getattr(item, "text", "") or "")
+            latex = getattr(item, "orig", None)
+            
+            # Create a unique ID for the formula
+            formula_id = f"formula_{len(out) + 1}"
+            
+            out.append(Formula(
+                id=formula_id,
+                text=text,
+                latex=latex,
+                page=page
+            ))
+    return out
+
 
 def create_table(tbl, idx, dl_doc, doc):
     """
@@ -236,6 +304,7 @@ class DoclingExtractor(BaseExtractor):
                 pipeline_options.accelerator_options = accelerator_options
                 pipeline_options.do_table_structure = True
                 pipeline_options.table_structure_options.do_cell_matching = True
+                pipeline_options.do_formula_enrichment = True  # Enable formula extraction
                 self._converter = DocumentConverter(
                     format_options={
                         InputFormat.PDF: PdfFormatOption(
@@ -244,7 +313,15 @@ class DoclingExtractor(BaseExtractor):
                     }
                 )
             else:
-                self._converter = DocumentConverter()
+                pipeline_options = PdfPipelineOptions()
+                pipeline_options.do_formula_enrichment = True  # Enable formula extraction
+                self._converter = DocumentConverter(
+                    format_options={
+                        InputFormat.PDF: PdfFormatOption(
+                            pipeline_options=pipeline_options,
+                        )
+                    }
+                )
 
         try:
             # ----------------------------------------------------------------------------------
@@ -283,6 +360,17 @@ class DoclingExtractor(BaseExtractor):
                 if fig_data:
                     doc.figures.append(fig_data)
 
+            # ----------------------------------------------------------------------------------
+            # 5. Extract formulas
+            # ----------------------------------------------------------------------------------
+
+            doc.formulas = []  # reset in case we are re‑processing
+            formulas = collect_formulas(dl_doc)
+            for idx, formula in enumerate(formulas):
+                formula.id = f"{doc.doc_id}_formula_{idx + 1}"
+                doc.formulas.append(formula)
+
+
         except Exception as exc:
             # ------------------------------------------------------------------------------
             # 5. Robust error handling – never crash the ingestion pipeline
@@ -290,3 +378,5 @@ class DoclingExtractor(BaseExtractor):
             print(f"[DoclingExtractor] failed for {doc.pdf_path}: {exc}")
             doc.text = None
             doc.tables = []
+            doc.figures = []
+            doc.formulas = []
