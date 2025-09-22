@@ -59,6 +59,26 @@ def _page_of(item: TextItem) -> int:
     if not provs: return -1
     return (getattr(provs[0], "page_no", 0) or 0) + 1
 
+def _get_position_info(item: TextItem) -> Tuple[Optional[int], Optional[float], Optional[float], Optional[float], Optional[float]]:
+    """Extract position information (page, top, left, right, bottom) from a TextItem."""
+    provs = _as_list(getattr(item, "prov", None))
+    if not provs:
+        return None, None, None, None, None
+    
+    try:
+        prov = provs[0]
+        page = getattr(prov, "page_no", None)
+        bbox = getattr(prov, "bbox", None)
+        
+        if bbox:
+            left, top, right, bottom = bbox.as_tuple()
+            return page, top, left, right, bottom
+        else:
+            return page, None, None, None, None
+    except Exception:
+        return None, None, None, None, None
+
+
 def convert_with_formula_enrichment(pdf_path: str | Path) -> DoclingDocument:
     opts = PdfPipelineOptions()
     opts.do_formula_enrichment = True
@@ -72,6 +92,9 @@ def collect_formulas(doc: DoclingDocument) -> List[Formula]:
             page = _page_of(item)
             text = hard_norm(getattr(item, "text", "") or "")
             latex = getattr(item, "orig", None)
+
+            # Extract position information
+            pos_page, pos_top, pos_left, pos_right, pos_bottom = _get_position_info(item)
             
             # Create a unique ID for the formula
             formula_id = f"formula_{len(out) + 1}"
@@ -80,7 +103,12 @@ def collect_formulas(doc: DoclingDocument) -> List[Formula]:
                 id=formula_id,
                 text=text,
                 latex=latex,
-                page=page
+                page=page,
+                pos_page=pos_page,
+                pos_top=pos_top,
+                pos_left=pos_left,
+                pos_right=pos_right,
+                pos_bottom=pos_bottom
             ))
     return out
 
