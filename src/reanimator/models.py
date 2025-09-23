@@ -61,8 +61,7 @@ class Formula:
     """Represents a single formula extracted from a document."""
     id: str
     text: str
-    latex: Optional[str] = None
-    page: int = -1
+    orig: Optional[str] = None
     metadata: Dict = field(default_factory=dict)
     pos_page: Optional[int] = None
     pos_top: Optional[float] = None
