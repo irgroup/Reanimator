@@ -206,3 +206,4 @@ def load_judgements(file_path: str) -> List[Judgement]:
     with open(file_path, 'r') as f:
         data = json.load(f)
     return [Judgement(**d) for d in data]
+
