@@ -27,37 +27,37 @@ from pathlib import Path
 # =============================
 # Normalization / utils
 # =============================
-import re
+# import re
 
-CONTROL_CHARS = re.compile(r"[\x00-\x1F\x7F]")
-ZERO_WIDTHS   = re.compile(r"[\u200B-\u200D\u2060\uFEFF]")
-WS            = re.compile(r"\s+")
+# CONTROL_CHARS = re.compile(r"[\x00-\x1F\x7F]")
+# ZERO_WIDTHS   = re.compile(r"[\u200B-\u200D\u2060\uFEFF]")
+# WS            = re.compile(r"\s+")
 
-SUPERSCRIPT_MAP = str.maketrans({
-    "⁰":"0","¹":"1","²":"2","³":"3","⁴":"4","⁵":"5","⁶":"6","⁷":"7","⁸":"8","⁹":"9",
-    "ᵃ":"a","ᵇ":"b","ᶜ":"c","ᵈ":"d","ᵉ":"e","ᶠ":"f","ᵍ":"g","ʰ":"h","ᶦ":"i","ʲ":"j","ᵏ":"k",
-    "ˡ":"l","ᵐ":"m","ⁿ":"n","ᵒ":"o","ᵖ":"p","ʳ":"r","ˢ":"s","ᵗ":"t","ᵘ":"u","ᵛ":"v","ʷ":"w",
-    "ˣ":"x","ʸ":"y","ᶻ":"z"
-})
+# SUPERSCRIPT_MAP = str.maketrans({
+#     "⁰":"0","¹":"1","²":"2","³":"3","⁴":"4","⁵":"5","⁶":"6","⁷":"7","⁸":"8","⁹":"9",
+#     "ᵃ":"a","ᵇ":"b","ᶜ":"c","ᵈ":"d","ᵉ":"e","ᶠ":"f","ᵍ":"g","ʰ":"h","ᶦ":"i","ʲ":"j","ᵏ":"k",
+#     "ˡ":"l","ᵐ":"m","ⁿ":"n","ᵒ":"o","ᵖ":"p","ʳ":"r","ˢ":"s","ᵗ":"t","ᵘ":"u","ᵛ":"v","ʷ":"w",
+#     "ˣ":"x","ʸ":"y","ᶻ":"z"
+# })
 
-def hard_norm(s: str) -> str:
-    if not s: return ""
-    s = s.translate(SUPERSCRIPT_MAP)      # normalize superscripts -> plain
-    s = s.replace("\u00AD", "")           # soft hyphen
-    s = s.replace("\u00A0", " ")          # NBSP
-    s = ZERO_WIDTHS.sub("", s)
-    s = CONTROL_CHARS.sub(" ", s)
-    s = WS.sub(" ", s).strip()
-    return s
+# def hard_norm(s: str) -> str:
+#     if not s: return ""
+#     s = s.translate(SUPERSCRIPT_MAP)      # normalize superscripts -> plain
+#     s = s.replace("\u00AD", "")           # soft hyphen
+#     s = s.replace("\u00A0", " ")          # NBSP
+#     s = ZERO_WIDTHS.sub("", s)
+#     s = CONTROL_CHARS.sub(" ", s)
+#     s = WS.sub(" ", s).strip()
+#     return s
 
 def _as_list(x):
     if x is None: return []
     return x if isinstance(x, list) else [x]
 
-def _page_of(item: TextItem) -> int:
-    provs = _as_list(getattr(item, "prov", None))
-    if not provs: return -1
-    return (getattr(provs[0], "page_no", 0) or 0) + 1
+# def _page_of(item: TextItem) -> int:
+#     provs = _as_list(getattr(item, "prov", None))
+#     if not provs: return -1
+#     return (getattr(provs[0], "page_no", 0) or 0) + 1
 
 def _get_position_info(item: TextItem) -> Tuple[Optional[int], Optional[float], Optional[float], Optional[float], Optional[float]]:
     """Extract position information (page, top, left, right, bottom) from a TextItem."""
@@ -79,20 +79,18 @@ def _get_position_info(item: TextItem) -> Tuple[Optional[int], Optional[float], 
         return None, None, None, None, None
 
 
-def convert_with_formula_enrichment(pdf_path: str | Path) -> DoclingDocument:
-    opts = PdfPipelineOptions()
-    opts.do_formula_enrichment = True
-    conv = DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts)})
-    return conv.convert(str(pdf_path)).document
+# def convert_with_formula_enrichment(pdf_path: str | Path) -> DoclingDocument:
+#     opts = PdfPipelineOptions()
+#     opts.do_formula_enrichment = True
+#     conv = DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts)})
+#     return conv.convert(str(pdf_path)).document
 
 def collect_formulas(doc: DoclingDocument) -> List[Formula]:
     out: List[Formula] = []
     for item, _lvl in doc.iterate_items():
         if isinstance(item, TextItem) and item.label == DocItemLabel.FORMULA:
-            page = _page_of(item)
-            text = hard_norm(getattr(item, "text", "") or "")
-            latex = getattr(item, "orig", None)
-
+            text = getattr(item, "text", "") or ""
+            orig = getattr(item, "orig", None)
             # Extract position information
             pos_page, pos_top, pos_left, pos_right, pos_bottom = _get_position_info(item)
             
@@ -102,8 +100,7 @@ def collect_formulas(doc: DoclingDocument) -> List[Formula]:
             out.append(Formula(
                 id=formula_id,
                 text=text,
-                latex=latex,
-                page=page,
+                orig=orig,
                 pos_page=pos_page,
                 pos_top=pos_top,
                 pos_left=pos_left,
