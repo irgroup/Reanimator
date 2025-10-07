@@ -56,12 +56,15 @@ class Figure:
         """Creates a Figure object from a dictionary."""
         return cls(**d)
 
+
 @dataclass
 class Formula:
     """Represents a single formula extracted from a document."""
     id: str
     text: str
+    name: Optional[str] = None
     orig: Optional[str] = None
+    references: List[str] = field(default_factory=list) 
     metadata: Dict = field(default_factory=dict)
     pos_page: Optional[int] = None
     pos_top: Optional[float] = None
@@ -78,6 +81,7 @@ class Formula:
     def from_dict(cls, d: Dict) -> 'Formula':
         """Creates a Formula object from a dictionary."""
         return cls(**d)
+
 
 
 @dataclass
