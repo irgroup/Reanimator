@@ -70,33 +70,55 @@ def _nltk_sentence_split(text: str) -> List[str]:
         return []
 
 
-def build_sentence_index(doc: DoclingDocument) -> List[Dict]:
+def build_complete_index(dl_doc: DoclingDocument) -> Tuple[List[Dict], List[Dict], List[TextItem]]:
     """
-    Iterate each TextItem ONCE and build an index of sentences with page info.
+    Single pass through document to collect:
+    - Sentence index for reference lookup
+    - Text items with positions for context fallback  
+    - Formula items for formula extraction
+    """
+    sentence_index = []
+    text_items_with_positions = []  # NEW: Store text items with their positions
+    formula_items = []
     
-    Returns:
-        List[Dict] with keys: page, sentence, raw, label
-    """
-    idx = []
-    for item, _ in doc.iterate_items():
+    for item, _ in dl_doc.iterate_items():
         if not isinstance(item, TextItem):
             continue
-        if getattr(item, "label", None) == DocItemLabel.FORMULA:
+            
+        # Handle formulas
+        if item.label == DocItemLabel.FORMULA:
+            formula_items.append(item)
+            print(f"Found formula item with text: '{getattr(item, 'text', '')[:30]}...'")
             continue
-
+            
+        # Handle regular text
         text = getattr(item, "text", "") or ""
         if not text.strip():
             continue
 
         page, top, left, right, bottom = _get_position_info(item)
+        
+        # Store text item with position for context fallback
+        text_items_with_positions.append({
+            'item': item,
+            'page': page,
+            'top': top,
+            'left': left,
+            'right': right,
+            'bottom': bottom,
+            'text': text
+        })
+        
+        # Build sentence index
         for sent in _robust_sentence_split(text):
-            idx.append({
+            sentence_index.append({
                 "page": page,
                 "sentence": sent,
                 "raw": text,
                 "label": getattr(item, "label", None)
             })
-    return idx
+    
+    return sentence_index,  formula_items, text_items_with_positions
 
 # ============================================================================
 # ENTITY REFERENCE EXTRACTION
@@ -226,11 +248,15 @@ def extract_formula_number(text: str) -> Optional[str]:
     return best
 
 
-def extract_context_from_position(doc: DoclingDocument, pos_page: int, 
-                                 pos_top: float, pos_bottom: float, 
-                                 context_lines: int = 3) -> List[str]:
+def extract_context_from_precollected_items(text_items_with_positions: List[Dict], 
+                                          pos_page: int, 
+                                          pos_top: float, 
+                                          pos_bottom: float,
+                                          pos_left: float,  # NEW
+                                          pos_right: float,  # NEW
+                                          context_lines: int = 3) -> List[str]:
     """
-    Extract context sentences based on formula position when number extraction fails.
+    Extract context sentences using PRE-COLLECTED text items with horizontal filtering.
     """
     if pos_page is None:
         return []
@@ -238,65 +264,51 @@ def extract_context_from_position(doc: DoclingDocument, pos_page: int,
     context_sentences = []
     
     try:
-        # Collect all text items on the same page
-        page_items = []
-        for item, _ in doc.iterate_items():
-            if not isinstance(item, TextItem) or getattr(item, "label", None) == DocItemLabel.FORMULA:
-                continue
-            
-            item_page, item_top, _, _, item_bottom = _get_position_info(item)
-            if item_page == pos_page and item_top is not None:
-                page_items.append((item_top, item_bottom, item))
-        
-        # Sort by vertical position
-        page_items.sort(key=lambda x: x[0])
-        
-        # Find items near the formula position
+        # Find items near the formula position using pre-collected data
         nearby_items = []
-        for top, bottom, item in page_items:
-            vertical_overlap = (top <= pos_bottom + (context_lines * 50) and 
-                              bottom >= pos_top - (context_lines * 50))
+        for item_data in text_items_with_positions:
+            item_page = item_data['page']
+            item_top = item_data['top']
+            item_bottom = item_data['bottom']
+            item_left = item_data.get('left')  # NEW
+            item_right = item_data.get('right')  # NEW
             
-            if vertical_overlap:
-                nearby_items.append(item)
+            if (item_page == pos_page and 
+                item_top is not None and 
+                item_bottom is not None):
+                
+                # Check vertical proximity
+                vertical_overlap = (item_top <= pos_bottom + (context_lines * 10) and 
+                                  item_bottom >= pos_top - (context_lines * 10))
+                
+                if vertical_overlap:  # BOTH conditions
+                    nearby_items.append(item_data)
         
         # Extract text from nearby items
         all_text = ""
-        for item in nearby_items:
-            text = getattr(item, "text", "").strip()
+        for item_data in nearby_items:
+            text = item_data['text'].strip()
             if text and len(text) > 10:
                 all_text += " " + text
         
         if all_text:
             sentences = _robust_sentence_split(all_text)
-            context_sentences = sentences[:4]
+            
+            context_sentences = sentences[:4]  # Limit to 4 unique sentences
     
     except Exception as e:
-        print(f"Error extracting context from position: {e}")
+        print(f"Error extracting context from pre-collected items: {e}")
     
     return context_sentences
 
-
-def create_formula(doc: Document, dl_doc: DoclingDocument, sentence_index: List[Dict] = None) -> List[Formula]:
+def create_formula_from_items(doc: Document, formula_items: List[TextItem], sentence_index: List[Dict] = None,text_items_with_positions: List[Dict] = None) -> List[Formula]:
     """
-    Collect formulas and attach in-text references via the sentence index.
-    Also save formula_number as 'name'.
+    Create formulas from PRE-COLLECTED items (no document iteration).
     """
     out: List[Formula] = []
-    formula_count = 0
+    
 
-    print("\n=== Starting Formula Extraction ===")
-
-    # First pass: collect all formulas
-    formula_items = []
-    for item, _lvl in dl_doc.iterate_items():
-        if isinstance(item, TextItem) and item.label == DocItemLabel.FORMULA:
-            formula_items.append(item)
-
-    print(f"Found {len(formula_items)} formulas in document")
-
-    for item in formula_items:
-        formula_count += 1
+    for formula_count, item in enumerate(formula_items, 1):
         text = getattr(item, "text", "") or ""
         orig = getattr(item, "orig", "") or ""
         pos_page, pos_top, pos_left, pos_right, pos_bottom = _get_position_info(item)
@@ -315,22 +327,20 @@ def create_formula(doc: Document, dl_doc: DoclingDocument, sentence_index: List[
             strategy = "pattern_matching"
         else:
             # Fallback: context near position
-            references, strategy = [], "none"
-            ctx = extract_context_from_position(dl_doc, pos_page, pos_top or 0, pos_bottom or 0)
-            if ctx:
-                references = ctx
-                strategy = "position_context"
+            references = []
+            if text_items_with_positions and pos_page is not None:
+                references = extract_context_from_precollected_items(
+                    text_items_with_positions, pos_page, pos_top or 0, pos_bottom or 0, pos_left or 0, pos_right or 0 
+                )
+            strategy = "position_context" if references else "none"
 
         # Log results
         if strategy == "pattern_matching":
             print(f"   Found {len(references)} references via sentence index")
-        elif strategy == "position_context":
-            print(f"   Found {len(references)} context sentences via position fallback")
         else:
             print("   No references found")
 
         if references:
-            print("  Sample references:")
             for i, ref in enumerate(references[:2]):
                 print(f"    {i+1}. {ref[:80]}...")
         
@@ -347,9 +357,7 @@ def create_formula(doc: Document, dl_doc: DoclingDocument, sentence_index: List[
             pos_right=pos_right,
             pos_bottom=pos_bottom
         ))
-
-    print(f"\n=== Formula Extraction Complete ===")
-    print(f"Total formulas extracted: {len(out)}")
+        
     return out
 
 # ============================================================================
@@ -532,7 +540,7 @@ class DoclingExtractor(BaseExtractor):
             # 2. Extract plain text
             # -----------------------------------------------------------------
             doc.text = dl_doc.export_to_text()
-            sentence_index = build_sentence_index(dl_doc)
+            sentence_index, formula_items, text_items_with_positions = build_complete_index(dl_doc)
 
             # -----------------------------------------------------------------
             # 3. Extract tables
@@ -556,7 +564,7 @@ class DoclingExtractor(BaseExtractor):
             # 5. Extract formulas
             # -----------------------------------------------------------------
             doc.formulas = []
-            formulas = create_formula(doc, dl_doc, sentence_index=sentence_index)
+            formulas = create_formula_from_items(doc, formula_items, sentence_index=sentence_index, text_items_with_positions=text_items_with_positions)
             doc.formulas.extend(formulas)
 
         except Exception as exc:
