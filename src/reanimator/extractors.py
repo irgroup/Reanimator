@@ -252,8 +252,6 @@ def extract_context_from_precollected_items(text_items_with_positions: List[Dict
                                           pos_page: int, 
                                           pos_top: float, 
                                           pos_bottom: float,
-                                          pos_left: float,  # NEW
-                                          pos_right: float,  # NEW
                                           context_lines: int = 3) -> List[str]:
     """
     Extract context sentences using PRE-COLLECTED text items with horizontal filtering.
@@ -270,8 +268,6 @@ def extract_context_from_precollected_items(text_items_with_positions: List[Dict
             item_page = item_data['page']
             item_top = item_data['top']
             item_bottom = item_data['bottom']
-            item_left = item_data.get('left')  # NEW
-            item_right = item_data.get('right')  # NEW
             
             if (item_page == pos_page and 
                 item_top is not None and 
@@ -330,7 +326,7 @@ def create_formula_from_items(doc: Document, formula_items: List[TextItem], sent
             references = []
             if text_items_with_positions and pos_page is not None:
                 references = extract_context_from_precollected_items(
-                    text_items_with_positions, pos_page, pos_top or 0, pos_bottom or 0, pos_left or 0, pos_right or 0 
+                    text_items_with_positions, pos_page, pos_top or 0, pos_bottom or 0
                 )
             strategy = "position_context" if references else "none"
 
