@@ -103,7 +103,7 @@ def build_complete_index(dl_doc: DoclingDocument) -> Tuple[List[Dict], List[Dict
 
         page, top, left, right, bottom = _get_position_info(item)
         
-        # Store text item with position (unchanged)
+        # Store text item with position 
         text_items_with_positions.append({
             'item': item, 'page': page, 'top': top, 'left': left,
             'right': right, 'bottom': bottom, 'text': text
