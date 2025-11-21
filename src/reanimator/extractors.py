@@ -4,7 +4,6 @@ import pandas as pd
 import re
 import spacy
 from nltk.tokenize import sent_tokenize
-
 from .models import Table, Figure, Formula, Document
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.datamodel.accelerator_options import AcceleratorOptions
@@ -47,7 +46,7 @@ def _robust_sentence_split(text: str) -> List[str]:
             meaningful_sentences = []
             for sentence in sentences:
                 word_count = len(sentence.split())
-                if word_count >= 4 and len(sentence) > 10:
+                if word_count >= 2 and len(sentence) > 5: 
                     meaningful_sentences.append(sentence)
             
             return meaningful_sentences
@@ -57,30 +56,33 @@ def _robust_sentence_split(text: str) -> List[str]:
     # Fallback to NLTK
     return _nltk_sentence_split(text)
 
-
 def _nltk_sentence_split(text: str) -> List[str]:
     """
     NLTK-based sentence splitting fallback.
     """
     try:
         sentences = sent_tokenize(text)
-        return [s.strip() for s in sentences if len(s.split()) >= 4 and len(s.strip()) > 10]
+        return [s.strip() for s in sentences if len(s.split()) >= 2 and len(s.strip()) > 5]
     except Exception as e:
         print(f"NLTK sentence splitting failed: {e}")
         return []
 
-
 def build_complete_index(dl_doc: DoclingDocument) -> Tuple[List[Dict], List[Dict], List[TextItem]]:
     """
     Single pass through document to collect:
-    - Sentence index for reference lookup
+    - Sentence index (built from page text, sorted, headers/footers/footnotes REMOVED)
     - Text items with positions for context fallback  
     - Formula items for formula extraction
     """
-    sentence_index = []
-    text_items_with_positions = []  # NEW: Store text items with their positions
+    text_items_with_positions = []
     formula_items = []
     
+    # Back to a single list of items per page
+    page_data: Dict[int, List[Dict]] = {} 
+
+    # ========================================================================
+    # PASS 1: Collect items, filter headers/footers/footnotes
+    # ========================================================================
     for item, _ in dl_doc.iterate_items():
         if not isinstance(item, TextItem):
             continue
@@ -88,7 +90,6 @@ def build_complete_index(dl_doc: DoclingDocument) -> Tuple[List[Dict], List[Dict
         # Handle formulas
         if item.label == DocItemLabel.FORMULA:
             formula_items.append(item)
-            print(f"Found formula item with text: '{getattr(item, 'text', '')[:30]}...'")
             continue
             
         # Handle regular text
@@ -96,34 +97,104 @@ def build_complete_index(dl_doc: DoclingDocument) -> Tuple[List[Dict], List[Dict
         if not text.strip():
             continue
 
+        # Heuristic to filter out the footnotes (e.g., "1 See at: http...")
+        if re.match(r'^\d+\s+See at: http', text.strip()):
+            continue
+
         page, top, left, right, bottom = _get_position_info(item)
         
-        # Store text item with position for context fallback
+        # Store text item with position 
         text_items_with_positions.append({
-            'item': item,
-            'page': page,
-            'top': top,
-            'left': left,
-            'right': right,
-            'bottom': bottom,
-            'text': text
+            'item': item, 'page': page, 'top': top, 'left': left,
+            'right': right, 'bottom': bottom, 'text': text
         })
         
-        # Build sentence index
-        for sent in _robust_sentence_split(text):
+        # Store text for sentence splitting
+        if page is not None and top is not None and left is not None:
+            
+            label = getattr(item, "label", None)
+            label_str = str(label)
+            is_header_or_footer = "Header" in label_str or "Footer" in label_str
+            
+            # Filter headers/footers
+            if not is_header_or_footer:
+                if page not in page_data:
+                    page_data[page] = []
+                
+                # Add all other text to the single list
+                page_data[page].append({
+                    'text': text,
+                    'top': top,
+                    'left': left,
+                    'label': label
+                })
+
+    # ========================================================================
+    # PASS 2: Build sentence index from sorted page text
+    # ========================================================================
+    sentence_index = []
+    
+    # Iterate through pages
+    for page, items in sorted(page_data.items()):
+        
+        # Sort all items on the page by position (top-to-bottom, left-to-right)
+        items.sort(key=lambda x: (x['top'], x['left']))
+
+        # Join all sorted text chunks
+        sorted_texts = [item['text'] for item in items]
+        full_page_text = " ".join(sorted_texts)
+        
+        # --- FIX HYPHENATION ---
+        full_page_text = re.sub(r'(\w+)-\s+([a-z]\w*)', r'\1\2', full_page_text)
+        
+
+        # Get the most common label
+        page_label = None
+        all_labels = [item['label'] for item in items if item['label'] is not None]
+        if all_labels:
+            try:
+                page_label = max(set(all_labels), key=all_labels.count)
+            except Exception as e:
+                print(f"[build_complete_index] Warning: Could not determine page label for page {page}: {e}")
+                pass 
+
+        # Define problematic punctuation and their safe replacements
+        replacements = {
+            '___DOTS___': '. . .',   # For "one.pdf"
+            '___ELLIPSIS___': '...', # For standard ellipsis
+            '___HELLIP___': '…'      # For unicode ellipsis
+        }
+        
+        # Replace problematic punctuation with safe tokens
+        safe_text = full_page_text
+        for token, original in replacements.items():
+            safe_text = safe_text.replace(original, token)
+        
+        # Split the *safe* text
+        sentences = _robust_sentence_split(safe_text)
+        
+        # Now, restore the original punctuation in the split sentences
+        restored_sentences = []
+        for sent in sentences:
+            restored_sent = sent
+            for token, original in replacements.items():
+                restored_sent = restored_sent.replace(token, original)
+            restored_sentences.append(restored_sent)
+       
+
+        # Add the *restored* sentences to the index
+        for sent in restored_sentences:
             sentence_index.append({
                 "page": page,
                 "sentence": sent,
-                "raw": text,
-                "label": getattr(item, "label", None)
+                "raw": full_page_text, # Raw is still the original full_page_text
+                "label": page_label
             })
     
-    return sentence_index,  formula_items, text_items_with_positions
-
+    return sentence_index, formula_items, text_items_with_positions
 # ============================================================================
 # ENTITY REFERENCE EXTRACTION
 # ============================================================================
-
 def _mentions_pattern_for_entity(entity_type: str, name_or_number: str) -> re.Pattern:
     """
     Create regex pattern for entity mentions in text.
@@ -132,7 +203,7 @@ def _mentions_pattern_for_entity(entity_type: str, name_or_number: str) -> re.Pa
     
     # Normalize: pull out the numeric token
     m = re.match(
-        r'^(?:Table|Tab\.?|tab\.?|Figure|Fig\.?|fig\.?|Eqn?\.?|Equation)?\s*([A-Za-z0-9]+)$',
+        r'^(?:Table|Tab\.?|tab\.?|Figure|Fig\.?|fig\.?|Eqn?\.?|Equation)?\s*([A-Za-z0-9\.]+)$', # Allow dots in number
         name_or_number, re.IGNORECASE
     )
     token = m.group(1) if m else name_or_number
@@ -143,12 +214,16 @@ def _mentions_pattern_for_entity(entity_type: str, name_or_number: str) -> re.Pa
         return re.compile(rf"\b(?:Figure|Fig\.?|fig\.?)\s*{re.escape(token)}\b", re.IGNORECASE)
     if entity_type == "formula":
         return re.compile(
+            # Pattern 1: The original logic that worked for 'Eqn. 1' and 'Eqn. (1)'
             rf"\b(?:Eq\.?|Eqn\.?|Equation)\s*\(?\s*{re.escape(token)}\s*\)?\b"
-            rf"|(?<!Section\s)(?<!Figure\s)(?<!Table\s)\(\s*{re.escape(token)}\s*\)",
+            
+            # Pattern 2: OR explicit support for brackets '[1]'
+            rf"|\b(?:Eq\.?|Eqn\.?|Equation)\s*\[\s*{re.escape(token)}\s*\]\b",
+            
             re.IGNORECASE
         )
     
-    return re.compile(r"$a")
+    return re.compile(r"$a") # Return a regex that matches nothing
 
 
 def find_mentions_from_index(sentence_index: List[Dict], name: str, caption: str, entity_type: str) -> List[str]:
@@ -309,37 +384,18 @@ def create_formula_from_items(doc: Document, formula_items: List[TextItem], sent
         orig = getattr(item, "orig", "") or ""
         pos_page, pos_top, pos_left, pos_right, pos_bottom = _get_position_info(item)
 
-        print(f"\nProcessing Formula #{formula_count}")
-        print(f"  Original text: '{orig[:100]}{'...' if len(orig) > 100 else ''}'")
-        print(f"  Page: {pos_page}")
-
         # Extract formula number
         formula_number = extract_formula_number(orig)
-        print(f"  Extracted Number: {formula_number if formula_number else 'None'}")
+        
 
         # Find references via sentence index
         if formula_number and sentence_index is not None:
             references = find_mentions_from_index(sentence_index, formula_number, None, "formula")
-            strategy = "pattern_matching"
+
         else:
             # Fallback: context near position
             references = []
-            if text_items_with_positions and pos_page is not None:
-                references = extract_context_from_precollected_items(
-                    text_items_with_positions, pos_page, pos_top or 0, pos_bottom or 0
-                )
-            strategy = "position_context" if references else "none"
-
-        # Log results
-        if strategy == "pattern_matching":
-            print(f"   Found {len(references)} references via sentence index")
-        else:
-            print("   No references found")
-
-        if references:
-            for i, ref in enumerate(references[:2]):
-                print(f"    {i+1}. {ref[:80]}...")
-        
+            
         formula_id = f"{doc.doc_id}_formula_{formula_count}"
         out.append(Formula(
             id=formula_id,
@@ -511,7 +567,7 @@ class DoclingExtractor(BaseExtractor):
             pipeline_options = PdfPipelineOptions()
             pipeline_options.do_table_structure = True
             pipeline_options.table_structure_options.do_cell_matching = True
-            pipeline_options.do_formula_enrichment = True
+            
             
             if accelerator_options:
                 pipeline_options.accelerator_options = accelerator_options
